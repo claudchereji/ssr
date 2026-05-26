@@ -670,10 +670,14 @@ void X11Input::InputThread() {
 						m_in_transition = false;
 					} else {
 						double t = (double) elapsed / (double) TRANSITION_DURATION;
-						grab_x = m_transition_start_x + (unsigned int) (t * (m_transition_target_x - m_transition_start_x) + 0.5);
-						grab_y = m_transition_start_y + (unsigned int) (t * (m_transition_target_y - m_transition_start_y) + 0.5);
-						grab_width = m_transition_start_w + (unsigned int) (t * (m_transition_target_w - m_transition_start_w) + 0.5);
-						grab_height = m_transition_start_h + (unsigned int) (t * (m_transition_target_h - m_transition_start_h) + 0.5);
+						int dx = (int) m_transition_target_x - (int) m_transition_start_x;
+						int dy = (int) m_transition_target_y - (int) m_transition_start_y;
+						int dw = (int) m_transition_target_w - (int) m_transition_start_w;
+						int dh = (int) m_transition_target_h - (int) m_transition_start_h;
+						grab_x = (unsigned int) clamp((int) m_transition_start_x + (int) (t * dx + 0.5), 0, (int) m_screen_bbox.m_x2);
+						grab_y = (unsigned int) clamp((int) m_transition_start_y + (int) (t * dy + 0.5), 0, (int) m_screen_bbox.m_y2);
+						grab_width = (unsigned int) clamp((int) m_transition_start_w + (int) (t * dw + 0.5), 1, (int) (m_screen_bbox.m_x2 - grab_x));
+						grab_height = (unsigned int) clamp((int) m_transition_start_h + (int) (t * dh + 0.5), 1, (int) (m_screen_bbox.m_y2 - grab_y));
 					}
 				} else {
 					grab_x = target_x;
