@@ -949,7 +949,8 @@ void PageRecord::StartInput() {
 		// start the video input
 		if(m_video_backend == PageInput::VIDEO_BACKEND_X11) {
 			m_x11_input.reset(new X11Input(m_video_x, m_video_y, m_video_in_width, m_video_in_height, m_video_record_cursor,
-										   m_video_x11_area == PageInput::VIDEO_X11_AREA_CURSOR, m_video_x11_follow_fullscreen));
+										   m_video_x11_area == PageInput::VIDEO_X11_AREA_CURSOR, m_video_x11_follow_fullscreen,
+										   m_video_x11_area == PageInput::VIDEO_X11_AREA_ACTIVE_WINDOW));
 			connect(m_x11_input.get(), SIGNAL(CurrentRectangleChanged()), this, SLOT(OnUpdateRecordingFrame()), Qt::QueuedConnection);
 		}
 #if SSR_USE_OPENGL_RECORDING
