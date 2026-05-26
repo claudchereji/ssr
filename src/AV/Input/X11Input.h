@@ -64,8 +64,8 @@ private:
 	bool m_has_last_target;
 	bool m_in_transition;
 	int64_t m_transition_start_time;
-	unsigned int m_transition_start_x, m_transition_start_y;
-	unsigned int m_transition_target_x, m_transition_target_y;
+	unsigned int m_transition_start_x, m_transition_start_y, m_transition_start_w, m_transition_start_h;
+	unsigned int m_transition_target_x, m_transition_target_y, m_transition_target_w, m_transition_target_h;
 
 	std::thread m_thread;
 	MutexDataPair<SharedData> m_shared_data;

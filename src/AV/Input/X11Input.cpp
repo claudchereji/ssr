@@ -649,8 +649,12 @@ void X11Input::InputThread() {
 				if(current_target != None && m_has_last_target && current_target != m_last_target_window) {
 					m_transition_start_x = grab_x;
 					m_transition_start_y = grab_y;
+					m_transition_start_w = grab_width;
+					m_transition_start_h = grab_height;
 					m_transition_target_x = target_x;
 					m_transition_target_y = target_y;
+					m_transition_target_w = target_w;
+					m_transition_target_h = target_h;
 					m_transition_start_time = timestamp;
 					m_in_transition = true;
 				}
@@ -661,19 +665,28 @@ void X11Input::InputThread() {
 					if(elapsed >= TRANSITION_DURATION) {
 						grab_x = m_transition_target_x;
 						grab_y = m_transition_target_y;
+						grab_width = m_transition_target_w;
+						grab_height = m_transition_target_h;
 						m_in_transition = false;
 					} else {
 						double t = (double) elapsed / (double) TRANSITION_DURATION;
 						grab_x = m_transition_start_x + (unsigned int) (t * (m_transition_target_x - m_transition_start_x) + 0.5);
 						grab_y = m_transition_start_y + (unsigned int) (t * (m_transition_target_y - m_transition_start_y) + 0.5);
+						grab_width = m_transition_start_w + (unsigned int) (t * (m_transition_target_w - m_transition_start_w) + 0.5);
+						grab_height = m_transition_start_h + (unsigned int) (t * (m_transition_target_h - m_transition_start_h) + 0.5);
 					}
 				} else {
 					grab_x = target_x;
 					grab_y = target_y;
+					grab_width = target_w;
+					grab_height = target_h;
 				}
 
-				grab_width = target_w;
-				grab_height = target_h;
+				// ensure grab rectangle stays within screen bounds
+				if(grab_x < m_screen_bbox.m_x1) grab_x = m_screen_bbox.m_x1;
+				if(grab_y < m_screen_bbox.m_y1) grab_y = m_screen_bbox.m_y1;
+				if(grab_x + grab_width > m_screen_bbox.m_x2) grab_width = m_screen_bbox.m_x2 - grab_x;
+				if(grab_y + grab_height > m_screen_bbox.m_y2) grab_height = m_screen_bbox.m_y2 - grab_y;
 
 				if(current_target != None) {
 					m_last_target_window = current_target;
