@@ -39,7 +39,7 @@ private:
 
 private:
 	unsigned int m_x, m_y, m_width, m_height;
-	bool m_record_cursor, m_follow_cursor, m_follow_fullscreen, m_follow_active_window;
+	bool m_record_cursor, m_follow_cursor, m_follow_fullscreen, m_follow_active_window, m_follow_window_under_cursor;
 
 	std::atomic<uint32_t> m_frame_counter;
 	int64_t m_fps_last_timestamp;
@@ -65,7 +65,7 @@ private:
 	std::atomic<bool> m_should_stop, m_error_occurred;
 
 public:
-	X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_fullscreen, bool follow_active_window = false);
+	X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_fullscreen, bool follow_active_window = false, bool follow_window_under_cursor = false);
 	~X11Input();
 
 	// Reads the current recording rectangle.

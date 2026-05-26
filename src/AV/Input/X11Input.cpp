@@ -30,7 +30,7 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include "X11Input.h"
-
+#include <X11/Xatom.h>
 #include "Logger.h"
 #include "AVWrapper.h"
 #include "Synchronizer.h"
@@ -161,7 +161,7 @@ static void X11ImageDrawCursor(Display* dpy, XImage* image, int recording_area_x
 
 }
 
-X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_full_screen, bool follow_active_window) {
+X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_full_screen, bool follow_active_window, bool follow_window_under_cursor) {
 
 	m_x = x;
 	m_y = y;
@@ -171,6 +171,7 @@ X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned 
 	m_follow_cursor = follow_cursor;
 	m_follow_fullscreen = follow_full_screen;
 	m_follow_active_window = follow_active_window;
+	m_follow_window_under_cursor = follow_window_under_cursor;
 
 	m_x11_display = NULL;
 	m_x11_image = NULL;
@@ -460,6 +461,24 @@ void X11Input::UpdateScreenConfiguration() {
 
 }
 
+// Traverses up the window hierarchy to find the top-level window (direct child of root).
+static Window GetTopLevelWindow(Display* dpy, Window root, Window start) {
+	Window current = start;
+	while(current != root && current != None) {
+		Window parent;
+		Window* children = NULL;
+		unsigned int nchildren;
+		if(!XQueryTree(dpy, current, &root, &parent, &children, &nchildren))
+			break;
+		if(children != NULL)
+			XFree(children);
+		if(parent == root)
+			return current;
+		current = parent;
+	}
+	return None;
+}
+
 // Finds the currently focused top-level window using _NET_ACTIVE_WINDOW or XGetInputFocus.
 static Window FindActiveWindow(Display* dpy, Window root) {
 
@@ -486,21 +505,19 @@ static Window FindActiveWindow(Display* dpy, Window root) {
 	if(focus == None || focus == PointerRoot)
 		return None;
 
-	// if the focused window is a child, traverse up to find the top-level window
-	Window current = focus;
-	while(current != root && current != None) {
-		Window parent;
-		Window* children = NULL;
-		unsigned int nchildren;
-		if(!XQueryTree(dpy, current, &root, &parent, &children, &nchildren))
-			break;
-		if(children != NULL)
-			XFree(children);
-		if(parent == root)
-			return current;
-		current = parent;
-	}
+	return GetTopLevelWindow(dpy, root, focus);
 
+}
+
+// Finds the top-level window currently under the mouse cursor.
+static Window FindWindowUnderCursor(Display* dpy, Window root) {
+	Window root_return, child_return;
+	int root_x, root_y, win_x, win_y;
+	unsigned int mask;
+	if(XQueryPointer(dpy, root, &root_return, &child_return, &root_x, &root_y, &win_x, &win_y, &mask)) {
+		if(child_return != None && child_return != root)
+			return GetTopLevelWindow(dpy, root, child_return);
+	}
 	return None;
 
 }
@@ -602,6 +619,27 @@ void X11Input::InputThread() {
 					}
 				}
 				// if no valid active window or desktop is focused, keep previous grab_* values
+			}
+
+			// follow the window under the cursor
+			if(m_follow_window_under_cursor) {
+				Window hover = FindWindowUnderCursor(m_x11_display, m_x11_root);
+				if(hover != None) {
+					unsigned int wx, wy, wwidth, wheight;
+					if(GetWindowGeometry(m_x11_display, m_x11_root, hover, &wx, &wy, &wwidth, &wheight)) {
+						// ignore desktop-like windows that cover the entire screen
+						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
+						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
+						if(!(wwidth >= screen_width && wheight >= screen_height)) {
+							// clamp to screen bounds to ensure the grab area stays fully inside the screen
+							grab_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
+							grab_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
+							grab_width = std::min(wwidth, m_screen_bbox.m_x2 - grab_x);
+							grab_height = std::min(wheight, m_screen_bbox.m_y2 - grab_y);
+						}
+					}
+				}
+				// if no window under cursor or desktop is hovered, keep previous grab_* values
 			}
 
 			// save current size
