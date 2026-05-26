@@ -161,7 +161,7 @@ static void X11ImageDrawCursor(Display* dpy, XImage* image, int recording_area_x
 
 }
 
-X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_full_screen) {
+X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_full_screen, bool follow_active_window) {
 
 	m_x = x;
 	m_y = y;
@@ -170,6 +170,7 @@ X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned 
 	m_record_cursor = record_cursor;
 	m_follow_cursor = follow_cursor;
 	m_follow_fullscreen = follow_full_screen;
+	m_follow_active_window = follow_active_window;
 
 	m_x11_display = NULL;
 	m_x11_image = NULL;
@@ -459,6 +460,71 @@ void X11Input::UpdateScreenConfiguration() {
 
 }
 
+// Finds the currently focused top-level window using _NET_ACTIVE_WINDOW or XGetInputFocus.
+static Window FindActiveWindow(Display* dpy, Window root) {
+
+	// try _NET_ACTIVE_WINDOW first (most window managers support this)
+	Atom actual_type;
+	int actual_format;
+	unsigned long nitems, bytes_after;
+	unsigned char* prop = NULL;
+	Atom net_active_window = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
+	int status = XGetWindowProperty(dpy, root, net_active_window, 0, 1, False,
+									XA_WINDOW, &actual_type, &actual_format,
+									&nitems, &bytes_after, &prop);
+	if(status == Success && prop != NULL && nitems == 1) {
+		Window active = *(Window*)prop;
+		XFree(prop);
+		if(active != None && active != root)
+			return active;
+	}
+
+	// fallback to XGetInputFocus
+	Window focus, child;
+	int revert;
+	XGetInputFocus(dpy, &focus, &revert);
+	if(focus == None || focus == PointerRoot)
+		return None;
+
+	// if the focused window is a child, traverse up to find the top-level window
+	Window current = focus;
+	while(current != root && current != None) {
+		Window parent;
+		Window* children = NULL;
+		unsigned int nchildren;
+		if(!XQueryTree(dpy, current, &root, &parent, &children, &nchildren))
+			break;
+		if(children != NULL)
+			XFree(children);
+		if(parent == root)
+			return current;
+		current = parent;
+	}
+
+	return None;
+
+}
+
+// Gets the absolute geometry of a window. Returns false on failure.
+static bool GetWindowGeometry(Display* dpy, Window root, Window win, unsigned int* x, unsigned int* y, unsigned int* width, unsigned int* height) {
+
+	XWindowAttributes attr;
+	if(!XGetWindowAttributes(dpy, win, &attr))
+		return false;
+
+	int abs_x, abs_y;
+	Window child;
+	if(!XTranslateCoordinates(dpy, win, root, 0, 0, &abs_x, &abs_y, &child))
+		return false;
+
+	*x = abs_x;
+	*y = abs_y;
+	*width = attr.width;
+	*height = attr.height;
+	return true;
+
+}
+
 void X11Input::InputThread() {
 	try {
 
@@ -515,6 +581,22 @@ void X11Input::InputThread() {
 					}
 				}
 				has_initial_cursor = true;
+			}
+
+			// follow the active window
+			if(m_follow_active_window) {
+				Window active = FindActiveWindow(m_x11_display, m_x11_root);
+				if(active != None) {
+					unsigned int wx, wy, wwidth, wheight;
+					if(GetWindowGeometry(m_x11_display, m_x11_root, active, &wx, &wy, &wwidth, &wheight)) {
+						// clamp to screen bounds to ensure the grab area stays fully inside the screen
+						grab_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
+						grab_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
+						grab_width = std::min(wwidth, m_screen_bbox.m_x2 - grab_x);
+						grab_height = std::min(wheight, m_screen_bbox.m_y2 - grab_y);
+					}
+				}
+				// if no valid active window, keep previous grab_* values
 			}
 
 			// save current size
