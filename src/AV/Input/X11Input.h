@@ -60,6 +60,13 @@ private:
 	std::vector<Rect> m_screen_rects;
 	std::vector<Rect> m_screen_dead_space;
 
+	Window m_last_target_window;
+	bool m_has_last_target;
+	bool m_in_transition;
+	int64_t m_transition_start_time;
+	unsigned int m_transition_start_x, m_transition_start_y;
+	unsigned int m_transition_target_x, m_transition_target_y;
+
 	std::thread m_thread;
 	MutexDataPair<SharedData> m_shared_data;
 	std::atomic<bool> m_should_stop, m_error_occurred;

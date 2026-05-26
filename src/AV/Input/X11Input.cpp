@@ -181,6 +181,10 @@ X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned 
 	m_x11_shm_info.readOnly = false;
 	m_x11_shm_server_attached = false;
 
+	m_last_target_window = None;
+	m_has_last_target = false;
+	m_in_transition = false;
+
 	m_screen_bbox = Rect(m_x, m_y, m_x + m_width, m_y + m_height);
 
 	{
@@ -600,46 +604,81 @@ void X11Input::InputThread() {
 				has_initial_cursor = true;
 			}
 
-			// follow the active window
+			// determine target window for window-follow modes
+			Window current_target = None;
+			unsigned int target_x = grab_x, target_y = grab_y, target_w = grab_width, target_h = grab_height;
+
 			if(m_follow_active_window) {
 				Window active = FindActiveWindow(m_x11_display, m_x11_root);
 				if(active != None) {
 					unsigned int wx, wy, wwidth, wheight;
 					if(GetWindowGeometry(m_x11_display, m_x11_root, active, &wx, &wy, &wwidth, &wheight)) {
-						// ignore desktop-like windows that cover the entire screen; keep previous values instead
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
 						if(!(wwidth >= screen_width && wheight >= screen_height)) {
-							// clamp to screen bounds to ensure the grab area stays fully inside the screen
-							grab_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
-							grab_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
-							grab_width = std::min(wwidth, m_screen_bbox.m_x2 - grab_x);
-							grab_height = std::min(wheight, m_screen_bbox.m_y2 - grab_y);
+							target_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
+							target_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
+							target_w = std::min(wwidth, m_screen_bbox.m_x2 - target_x);
+							target_h = std::min(wheight, m_screen_bbox.m_y2 - target_y);
+							current_target = active;
 						}
 					}
 				}
-				// if no valid active window or desktop is focused, keep previous grab_* values
 			}
 
-			// follow the window under the cursor
 			if(m_follow_window_under_cursor) {
 				Window hover = FindWindowUnderCursor(m_x11_display, m_x11_root);
 				if(hover != None) {
 					unsigned int wx, wy, wwidth, wheight;
 					if(GetWindowGeometry(m_x11_display, m_x11_root, hover, &wx, &wy, &wwidth, &wheight)) {
-						// ignore desktop-like windows that cover the entire screen
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
 						if(!(wwidth >= screen_width && wheight >= screen_height)) {
-							// clamp to screen bounds to ensure the grab area stays fully inside the screen
-							grab_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
-							grab_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
-							grab_width = std::min(wwidth, m_screen_bbox.m_x2 - grab_x);
-							grab_height = std::min(wheight, m_screen_bbox.m_y2 - grab_y);
+							target_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
+							target_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
+							target_w = std::min(wwidth, m_screen_bbox.m_x2 - target_x);
+							target_h = std::min(wheight, m_screen_bbox.m_y2 - target_y);
+							current_target = hover;
 						}
 					}
 				}
-				// if no window under cursor or desktop is hovered, keep previous grab_* values
+			}
+
+			// apply slide transition for window-follow modes
+			if(m_follow_active_window || m_follow_window_under_cursor) {
+				if(current_target != None && m_has_last_target && current_target != m_last_target_window) {
+					m_transition_start_x = grab_x;
+					m_transition_start_y = grab_y;
+					m_transition_target_x = target_x;
+					m_transition_target_y = target_y;
+					m_transition_start_time = timestamp;
+					m_in_transition = true;
+				}
+
+				if(m_in_transition) {
+					const int64_t TRANSITION_DURATION = 300000; // 300ms
+					int64_t elapsed = timestamp - m_transition_start_time;
+					if(elapsed >= TRANSITION_DURATION) {
+						grab_x = m_transition_target_x;
+						grab_y = m_transition_target_y;
+						m_in_transition = false;
+					} else {
+						double t = (double) elapsed / (double) TRANSITION_DURATION;
+						grab_x = m_transition_start_x + (unsigned int) (t * (m_transition_target_x - m_transition_start_x) + 0.5);
+						grab_y = m_transition_start_y + (unsigned int) (t * (m_transition_target_y - m_transition_start_y) + 0.5);
+					}
+				} else {
+					grab_x = target_x;
+					grab_y = target_y;
+				}
+
+				grab_width = target_w;
+				grab_height = target_h;
+
+				if(current_target != None) {
+					m_last_target_window = current_target;
+					m_has_last_target = true;
+				}
 			}
 
 			// save current size
