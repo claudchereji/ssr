@@ -589,14 +589,19 @@ void X11Input::InputThread() {
 				if(active != None) {
 					unsigned int wx, wy, wwidth, wheight;
 					if(GetWindowGeometry(m_x11_display, m_x11_root, active, &wx, &wy, &wwidth, &wheight)) {
-						// clamp to screen bounds to ensure the grab area stays fully inside the screen
-						grab_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
-						grab_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
-						grab_width = std::min(wwidth, m_screen_bbox.m_x2 - grab_x);
-						grab_height = std::min(wheight, m_screen_bbox.m_y2 - grab_y);
+						// ignore desktop-like windows that cover the entire screen; keep previous values instead
+						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
+						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
+						if(!(wwidth >= screen_width && wheight >= screen_height)) {
+							// clamp to screen bounds to ensure the grab area stays fully inside the screen
+							grab_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
+							grab_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
+							grab_width = std::min(wwidth, m_screen_bbox.m_x2 - grab_x);
+							grab_height = std::min(wheight, m_screen_bbox.m_y2 - grab_y);
+						}
 					}
 				}
-				// if no valid active window, keep previous grab_* values
+				// if no valid active window or desktop is focused, keep previous grab_* values
 			}
 
 			// save current size
