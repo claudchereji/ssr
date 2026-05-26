@@ -121,6 +121,7 @@ public:
 		VIDEO_X11_AREA_SCREEN,
 		VIDEO_X11_AREA_FIXED,
 		VIDEO_X11_AREA_CURSOR,
+		VIDEO_X11_AREA_ACTIVE_WINDOW,
 		VIDEO_X11_AREA_COUNT // must be last
 	};
 	enum enum_audio_backend {
@@ -165,7 +166,7 @@ private:
 
 	QComboBox *m_combobox_video_backend;
 	QButtonGroup *m_buttongroup_video_x11_area;
-	QRadioButton *m_radio_area_screen, *m_radio_area_fixed, *m_radio_area_cursor;
+	QRadioButton *m_radio_area_screen, *m_radio_area_fixed, *m_radio_area_cursor, *m_radio_area_active_window;
 	QComboBoxWithSignal *m_combobox_x11_screens;
 	QCheckBox *m_checkbox_video_x11_follow_fullscreen;
 	QPushButton *m_pushbutton_video_x11_select_rectangle, *m_pushbutton_video_x11_select_window;

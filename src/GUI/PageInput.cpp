@@ -44,6 +44,7 @@ ENUMSTRINGS(PageInput::enum_video_x11_area) = {
 	{PageInput::VIDEO_X11_AREA_SCREEN, "screen"},
 	{PageInput::VIDEO_X11_AREA_FIXED, "fixed"},
 	{PageInput::VIDEO_X11_AREA_CURSOR, "cursor"},
+	{PageInput::VIDEO_X11_AREA_ACTIVE_WINDOW, "active_window"},
 };
 
 ENUMSTRINGS(PageInput::enum_audio_backend) = {
@@ -309,9 +310,11 @@ PageInput::PageInput(MainWindow* main_window)
 			m_radio_area_screen = new QRadioButton(tr("Record the entire screen"), groupbox_video);
 			m_radio_area_fixed = new QRadioButton(tr("Record a fixed rectangle"), groupbox_video);
 			m_radio_area_cursor = new QRadioButton(tr("Follow the cursor"), groupbox_video);
+			m_radio_area_active_window = new QRadioButton(tr("Follow the active window"), groupbox_video);
 			m_buttongroup_video_x11_area->addButton(m_radio_area_screen, VIDEO_X11_AREA_SCREEN);
 			m_buttongroup_video_x11_area->addButton(m_radio_area_fixed, VIDEO_X11_AREA_FIXED);
 			m_buttongroup_video_x11_area->addButton(m_radio_area_cursor, VIDEO_X11_AREA_CURSOR);
+			m_buttongroup_video_x11_area->addButton(m_radio_area_active_window, VIDEO_X11_AREA_ACTIVE_WINDOW);
 			m_combobox_x11_screens = new QComboBoxWithSignal(groupbox_video);
 			m_combobox_x11_screens->setToolTip(tr("Select what monitor should be recorded in a multi-monitor configuration."));
 			m_checkbox_video_x11_follow_fullscreen = new QCheckBox(tr("Record entire screen with cursor"), groupbox_video);
@@ -446,6 +449,7 @@ PageInput::PageInput(MainWindow* main_window)
 				layout2->addWidget(m_radio_area_cursor);
 				layout2->addWidget(m_checkbox_video_x11_follow_fullscreen);
 			}
+			layout->addWidget(m_radio_area_active_window);
 			{
 				QHBoxLayout *layout2 = new QHBoxLayout();
 				layout->addLayout(layout2);
@@ -1201,6 +1205,21 @@ void PageInput::OnUpdateVideoAreaFields() {
 					SetVideoX11X(0);
 					SetVideoX11Y(0);
 				}
+				break;
+			}
+			case VIDEO_X11_AREA_ACTIVE_WINDOW: {
+				m_combobox_x11_screens->setEnabled(false);
+				m_checkbox_video_x11_follow_fullscreen->setEnabled(false);
+				m_pushbutton_video_x11_select_rectangle->setEnabled(false);
+				m_pushbutton_video_x11_select_window->setEnabled(false);
+				GroupEnabled({m_label_video_x11_x, m_spinbox_video_x11_x, m_label_video_x11_y, m_spinbox_video_x11_y,
+							  m_label_video_x11_width, m_spinbox_video_x11_width, m_label_video_x11_height, m_spinbox_video_x11_height}, false);
+				std::vector<QRect> screen_geometries = GetScreenGeometries();
+				QRect rect = (screen_geometries.size() == 0)? QRect(0, 0, 0, 0) : screen_geometries[0];
+				SetVideoX11X(rect.left());
+				SetVideoX11Y(rect.top());
+				SetVideoX11Width(rect.width());
+				SetVideoX11Height(rect.height());
 				break;
 			}
 			default: break;
