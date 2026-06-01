@@ -161,7 +161,7 @@ static void X11ImageDrawCursor(Display* dpy, XImage* image, int recording_area_x
 
 }
 
-X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_full_screen, bool follow_active_window, bool follow_window_under_cursor) {
+X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_full_screen, bool follow_active_window, bool follow_window_under_cursor, unsigned int follow_screen) {
 
 	m_x = x;
 	m_y = y;
@@ -172,6 +172,7 @@ X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned 
 	m_follow_fullscreen = follow_full_screen;
 	m_follow_active_window = follow_active_window;
 	m_follow_window_under_cursor = follow_window_under_cursor;
+	m_follow_screen = follow_screen;
 
 	m_x11_display = NULL;
 	m_x11_image = NULL;
@@ -394,68 +395,68 @@ void X11Input::UpdateScreenConfiguration() {
 						+ ", x2 = " + QString::number(rect.m_x2) + ", y2 = " + QString::number(rect.m_y2));
 	}
 
-	// calculate bounding box
-	m_screen_bbox = m_screen_rects[0];
+	// calculate combined bounding box
+	Rect combined_bbox = m_screen_rects[0];
 	for(size_t i = 1; i < m_screen_rects.size(); ++i) {
 		Rect &rect = m_screen_rects[i];
-		if(rect.m_x1 < m_screen_bbox.m_x1)
-			m_screen_bbox.m_x1 = rect.m_x1;
-		if(rect.m_y1 < m_screen_bbox.m_y1)
-			m_screen_bbox.m_y1 = rect.m_y1;
-		if(rect.m_x2 > m_screen_bbox.m_x2)
-			m_screen_bbox.m_x2 = rect.m_x2;
-		if(rect.m_y2 > m_screen_bbox.m_y2)
-			m_screen_bbox.m_y2 = rect.m_y2;
+		if(rect.m_x1 < combined_bbox.m_x1)
+			combined_bbox.m_x1 = rect.m_x1;
+		if(rect.m_y1 < combined_bbox.m_y1)
+			combined_bbox.m_y1 = rect.m_y1;
+		if(rect.m_x2 > combined_bbox.m_x2)
+			combined_bbox.m_x2 = rect.m_x2;
+		if(rect.m_y2 > combined_bbox.m_y2)
+			combined_bbox.m_y2 = rect.m_y2;
 	}
-	if(m_screen_bbox.m_x1 >= m_screen_bbox.m_x2 || m_screen_bbox.m_y1 >= m_screen_bbox.m_y2 ||
-	   m_screen_bbox.m_x2 - m_screen_bbox.m_x1 > SSR_MAX_IMAGE_SIZE || m_screen_bbox.m_y2 - m_screen_bbox.m_y1 > SSR_MAX_IMAGE_SIZE) {
+	if(combined_bbox.m_x1 >= combined_bbox.m_x2 || combined_bbox.m_y1 >= combined_bbox.m_y2 ||
+	   combined_bbox.m_x2 - combined_bbox.m_x1 > SSR_MAX_IMAGE_SIZE || combined_bbox.m_y2 - combined_bbox.m_y1 > SSR_MAX_IMAGE_SIZE) {
 		Logger::LogError("[X11Input::UpdateScreenConfiguration] " + Logger::tr("Error: Invalid screen bounding box!") + "\n"
-						 "    x1 = " + QString::number(m_screen_bbox.m_x1) + ", y1 = " + QString::number(m_screen_bbox.m_y1)
-						 + ", x2 = " + QString::number(m_screen_bbox.m_x2) + ", y2 = " + QString::number(m_screen_bbox.m_y2));
+						 "    x1 = " + QString::number(combined_bbox.m_x1) + ", y1 = " + QString::number(combined_bbox.m_y1)
+						 + ", x2 = " + QString::number(combined_bbox.m_x2) + ", y2 = " + QString::number(combined_bbox.m_y2));
 		throw X11Exception();
 	}
 
-	/*qDebug() << "m_screen_rects:";
-	for(Rect &rect : m_screen_rects) {
-		qDebug() << "    rect" << rect.m_x1 << rect.m_y1 << rect.m_x2 << rect.m_y2;
-	}
-	qDebug() << "m_screen_bbox:";
-	qDebug() << "    rect" << m_screen_bbox.m_x1 << m_screen_bbox.m_y1 << m_screen_bbox.m_x2 << m_screen_bbox.m_y2;*/
+	// apply follow-screen selection
+	if(m_follow_screen > 0 && m_follow_screen <= m_screen_rects.size()) {
+		m_screen_bbox = m_screen_rects[m_follow_screen - 1];
+		m_screen_dead_space.clear();
+		Logger::LogInfo("[X11Input::Init] " + Logger::tr("Constrained to screen %1:").arg(m_follow_screen)
+						+ " x1 = " + QString::number(m_screen_bbox.m_x1) + ", y1 = " + QString::number(m_screen_bbox.m_y1)
+						+ ", x2 = " + QString::number(m_screen_bbox.m_x2) + ", y2 = " + QString::number(m_screen_bbox.m_y2));
+	} else {
+		m_screen_bbox = combined_bbox;
 
-	// calculate dead space
-	m_screen_dead_space = {m_screen_bbox};
-	for(size_t i = 0; i < m_screen_rects.size(); ++i) {
-		/*qDebug() << "PARTIAL m_screen_dead_space:";
-		for(Rect &rect : m_screen_dead_space) {
-			qDebug() << "    rect" << rect.m_x1 << rect.m_y1 << rect.m_x2 << rect.m_y2;
-		}*/
-		Rect &subtract = m_screen_rects[i];
-		std::vector<Rect> result;
-		for(Rect &rect : m_screen_dead_space) {
-			if(rect.m_x1 < subtract.m_x2 && rect.m_y1 < subtract.m_y2 && subtract.m_x1 < rect.m_x2 && subtract.m_y1 < rect.m_y2) {
-				unsigned int mid_y1 = std::max(rect.m_y1, subtract.m_y1);
-				unsigned int mid_y2 = std::min(rect.m_y2, subtract.m_y2);
-				if(rect.m_y1 < subtract.m_y1)
-					result.emplace_back(rect.m_x1, rect.m_y1, rect.m_x2, subtract.m_y1);
-				if(rect.m_x1 < subtract.m_x1)
-					result.emplace_back(rect.m_x1, mid_y1, subtract.m_x1, mid_y2);
-				if(subtract.m_x2 < rect.m_x2)
-					result.emplace_back(subtract.m_x2, mid_y1, rect.m_x2, mid_y2);
-				if(subtract.m_y2 < rect.m_y2)
-					result.emplace_back(rect.m_x1, subtract.m_y2, rect.m_x2, rect.m_y2);
-			} else {
-				result.emplace_back(rect);
+		// calculate dead space
+		m_screen_dead_space = {m_screen_bbox};
+		for(size_t i = 0; i < m_screen_rects.size(); ++i) {
+			Rect &subtract = m_screen_rects[i];
+			std::vector<Rect> result;
+			for(Rect &rect : m_screen_dead_space) {
+				if(rect.m_x1 < subtract.m_x2 && rect.m_y1 < subtract.m_y2 && subtract.m_x1 < rect.m_x2 && subtract.m_y1 < rect.m_y2) {
+					unsigned int mid_y1 = std::max(rect.m_y1, subtract.m_y1);
+					unsigned int mid_y2 = std::min(rect.m_y2, subtract.m_y2);
+					if(rect.m_y1 < subtract.m_y1)
+						result.emplace_back(rect.m_x1, rect.m_y1, rect.m_x2, subtract.m_y1);
+					if(rect.m_x1 < subtract.m_x1)
+						result.emplace_back(rect.m_x1, mid_y1, subtract.m_x1, mid_y2);
+					if(subtract.m_x2 < rect.m_x2)
+						result.emplace_back(subtract.m_x2, mid_y1, rect.m_x2, mid_y2);
+					if(subtract.m_y2 < rect.m_y2)
+						result.emplace_back(rect.m_x1, subtract.m_y2, rect.m_x2, rect.m_y2);
+				} else {
+					result.emplace_back(rect);
+				}
 			}
+			m_screen_dead_space = std::move(result);
 		}
-		m_screen_dead_space = std::move(result);
-	}
 
-	// log the dead space rectangles
-	for(size_t i = 0; i < m_screen_dead_space.size(); ++i) {
-		Rect &rect = m_screen_dead_space[i];
-		Logger::LogInfo("[X11Input::Init] " + Logger::tr("Dead space %1:").arg(i)
-						+ " x1 = " + QString::number(rect.m_x1) + ", y1 = " + QString::number(rect.m_y1)
-						+ ", x2 = " + QString::number(rect.m_x2) + ", y2 = " + QString::number(rect.m_y2));
+		// log the dead space rectangles
+		for(size_t i = 0; i < m_screen_dead_space.size(); ++i) {
+			Rect &rect = m_screen_dead_space[i];
+			Logger::LogInfo("[X11Input::Init] " + Logger::tr("Dead space %1:").arg(i)
+							+ " x1 = " + QString::number(rect.m_x1) + ", y1 = " + QString::number(rect.m_y1)
+							+ ", x2 = " + QString::number(rect.m_x2) + ", y2 = " + QString::number(rect.m_y2));
+		}
 	}
 
 	/*qDebug() << "m_screen_dead_space:";

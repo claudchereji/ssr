@@ -556,6 +556,7 @@ void PageRecord::StartPage() {
 	// get the video input settings
 	m_video_backend = page_input->GetVideoBackend();
 	m_video_x11_area = page_input->GetVideoX11Area();
+	m_video_x11_screen_follow = page_input->GetVideoX11ScreenFollow();
 	m_video_x11_follow_fullscreen = page_input->GetVideoX11FollowFullscreen();
 #if SSR_USE_V4L2
 	m_v4l2_device = page_input->GetVideoV4L2Device();
@@ -957,7 +958,8 @@ void PageRecord::StartInput() {
 			m_x11_input.reset(new X11Input(m_video_x, m_video_y, m_video_in_width, m_video_in_height, m_video_record_cursor,
 										   m_video_x11_area == PageInput::VIDEO_X11_AREA_CURSOR, m_video_x11_follow_fullscreen,
 										   m_video_x11_area == PageInput::VIDEO_X11_AREA_ACTIVE_WINDOW,
-										   m_video_x11_area == PageInput::VIDEO_X11_AREA_WINDOW_UNDER_CURSOR));
+										   m_video_x11_area == PageInput::VIDEO_X11_AREA_WINDOW_UNDER_CURSOR,
+										   m_video_x11_screen_follow));
 			connect(m_x11_input.get(), SIGNAL(CurrentRectangleChanged()), this, SLOT(OnUpdateRecordingFrame()), Qt::QueuedConnection);
 		}
 #if SSR_USE_OPENGL_RECORDING
