@@ -23,6 +23,8 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 #include "SourceSink.h"
 #include "MutexDataPair.h"
 
+#include <QImage>
+
 class X11Input : public QObject, public VideoSource {
 	Q_OBJECT
 
@@ -68,6 +70,16 @@ private:
 	unsigned int m_transition_start_x, m_transition_start_y, m_transition_start_w, m_transition_start_h;
 	unsigned int m_transition_target_x, m_transition_target_y, m_transition_target_w, m_transition_target_h;
 
+	// overlay fade state for window-follow modes with per-monitor selection
+	QImage m_overlay_image;
+	QImage m_overlay_scaled;
+	unsigned int m_overlay_scaled_w, m_overlay_scaled_h;
+	bool m_overlay_active;
+	bool m_overlay_fading;
+	bool m_overlay_fade_in;
+	int64_t m_overlay_fade_start;
+	double m_overlay_opacity;
+
 	std::thread m_thread;
 	MutexDataPair<SharedData> m_shared_data;
 	std::atomic<bool> m_should_stop, m_error_occurred;
@@ -100,6 +112,7 @@ private:
 	void AllocateImage(unsigned int width, unsigned int height);
 	void FreeImage();
 	void UpdateScreenConfiguration();
+	void CompositeOverlay(unsigned int width, unsigned int height);
 
 private:
 	void InputThread();

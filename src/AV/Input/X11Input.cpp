@@ -36,6 +36,8 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 #include "Synchronizer.h"
 #include "VideoEncoder.h"
 
+#include <QPainter>
+
 /*
 The code in this file is based on the MIT-SHM example code and the x11grab device in libav/ffmpeg (which is GPL):
 http://www.xfree86.org/current/mit-shm.html
@@ -161,6 +163,57 @@ static void X11ImageDrawCursor(Display* dpy, XImage* image, int recording_area_x
 
 }
 
+// Returns true if two rectangles intersect
+static bool RectanglesIntersect(unsigned int ax1, unsigned int ay1, unsigned int aw, unsigned int ah,
+								unsigned int bx1, unsigned int by1, unsigned int bw, unsigned int bh) {
+	unsigned int ax2 = ax1 + aw, ay2 = ay1 + ah;
+	unsigned int bx2 = bx1 + bw, by2 = by1 + bh;
+	return ax1 < bx2 && ay1 < by2 && bx1 < ax2 && by1 < ay2;
+}
+
+void X11Input::CompositeOverlay(unsigned int width, unsigned int height) {
+	if(m_overlay_image.isNull() || m_overlay_opacity <= 0.0)
+		return;
+
+	// scale overlay to fit inside the grab rectangle with black bars
+	if(m_overlay_scaled.isNull() || m_overlay_scaled_w != width || m_overlay_scaled_h != height) {
+		m_overlay_scaled = m_overlay_image.scaled((int) width, (int) height, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+		m_overlay_scaled_w = width;
+		m_overlay_scaled_h = height;
+	}
+
+	// center the scaled overlay on a black background
+	int off_x = ((int) width - m_overlay_scaled.width()) / 2;
+	int off_y = ((int) height - m_overlay_scaled.height()) / 2;
+
+	// determine QImage format for the XImage buffer
+	AVPixelFormat av_fmt = X11ImageGetPixelFormat(m_x11_image);
+	QImage::Format q_fmt = QImage::Format_Invalid;
+	switch(av_fmt) {
+		case AV_PIX_FMT_BGRA: q_fmt = QImage::Format_ARGB32; break;
+		case AV_PIX_FMT_RGBA: q_fmt = QImage::Format_RGBA8888; break;
+		case AV_PIX_FMT_ABGR: q_fmt = QImage::Format_ARGB32; break;
+		case AV_PIX_FMT_ARGB: q_fmt = QImage::Format_ARGB32; break;
+		case AV_PIX_FMT_RGB24: q_fmt = QImage::Format_RGB888; break;
+		case AV_PIX_FMT_BGR24: q_fmt = QImage::Format_RGB888; break;
+		default: break;
+	}
+
+	if(q_fmt == QImage::Format_Invalid) {
+		// unsupported format: fill with black instead of compositing
+		X11ImageClearRectangle(m_x11_image, 0, 0, width, height);
+		return;
+	}
+
+	// wrap XImage buffer in a QImage
+	QImage frame((uchar*) m_x11_image->data, (int) width, (int) height, m_x11_image->bytes_per_line, q_fmt);
+
+	QPainter painter(&frame);
+	painter.setOpacity(m_overlay_opacity);
+	painter.drawImage(off_x, off_y, m_overlay_scaled);
+	painter.end();
+}
+
 X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_full_screen, bool follow_active_window, bool follow_window_under_cursor, unsigned int follow_screen) {
 
 	m_x = x;
@@ -185,6 +238,22 @@ X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned 
 	m_last_target_window = None;
 	m_has_last_target = false;
 	m_in_transition = false;
+
+	m_overlay_active = false;
+	m_overlay_fading = false;
+	m_overlay_fade_in = false;
+	m_overlay_fade_start = 0;
+	m_overlay_opacity = 0.0;
+	m_overlay_scaled_w = 0;
+	m_overlay_scaled_h = 0;
+
+	// load overlay image for per-monitor privacy mode
+	if(m_follow_screen > 0 && (m_follow_active_window || m_follow_window_under_cursor)) {
+		m_overlay_image = QImage(":/private_window.png");
+		if(m_overlay_image.isNull()) {
+			Logger::LogWarning("[X11Input::Init] " + Logger::tr("Warning: Could not load private window overlay image."));
+		}
+	}
 
 	m_screen_bbox = Rect(m_x, m_y, m_x + m_width, m_y + m_height);
 
@@ -608,6 +677,7 @@ void X11Input::InputThread() {
 			// determine target window for window-follow modes
 			Window current_target = None;
 			unsigned int target_x = grab_x, target_y = grab_y, target_w = grab_width, target_h = grab_height;
+			bool window_off_screen = false;
 
 			if(m_follow_active_window) {
 				Window active = FindActiveWindow(m_x11_display, m_x11_root);
@@ -617,6 +687,10 @@ void X11Input::InputThread() {
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
 						if(!(wwidth >= screen_width && wheight >= screen_height)) {
+							window_off_screen = !RectanglesIntersect(wx, wy, wwidth, wheight,
+															   m_screen_bbox.m_x1, m_screen_bbox.m_y1,
+															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
+															   m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
 							target_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
 							target_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
 							target_w = std::min(wwidth, m_screen_bbox.m_x2 - target_x);
@@ -635,12 +709,38 @@ void X11Input::InputThread() {
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
 						if(!(wwidth >= screen_width && wheight >= screen_height)) {
+							window_off_screen = !RectanglesIntersect(wx, wy, wwidth, wheight,
+															   m_screen_bbox.m_x1, m_screen_bbox.m_y1,
+															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
+															   m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
 							target_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
 							target_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
 							target_w = std::min(wwidth, m_screen_bbox.m_x2 - target_x);
 							target_h = std::min(wheight, m_screen_bbox.m_y2 - target_y);
 							current_target = hover;
 						}
+					}
+				}
+			}
+
+			// update overlay fade state when window goes fully off monitored screen
+			if(!m_overlay_image.isNull() && (m_follow_active_window || m_follow_window_under_cursor)) {
+				bool should_be_active = window_off_screen;
+				if(should_be_active != m_overlay_active) {
+					m_overlay_active = should_be_active;
+					m_overlay_fading = true;
+					m_overlay_fade_in = should_be_active;
+					m_overlay_fade_start = timestamp;
+				}
+				if(m_overlay_fading) {
+					const int64_t FADE_DURATION = 300000; // 300ms
+					int64_t elapsed = timestamp - m_overlay_fade_start;
+					if(elapsed >= FADE_DURATION) {
+						m_overlay_opacity = m_overlay_fade_in ? 1.0 : 0.0;
+						m_overlay_fading = false;
+					} else {
+						double t = (double) elapsed / (double) FADE_DURATION;
+						m_overlay_opacity = m_overlay_fade_in ? t : (1.0 - t);
 					}
 				}
 			}
@@ -750,6 +850,11 @@ void X11Input::InputThread() {
 			// draw the cursor
 			if(m_record_cursor) {
 				X11ImageDrawCursor(m_x11_display, m_x11_image, grab_x, grab_y);
+			}
+
+			// composite private-window overlay when window is off monitored screen
+			if(m_overlay_opacity > 0.0) {
+				CompositeOverlay(grab_width, grab_height);
 			}
 
 			// increase the frame counter
