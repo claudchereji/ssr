@@ -173,6 +173,8 @@ private:
 	QComboBox *m_combobox_x11_screens_follow;
 	QCheckBox *m_checkbox_video_x11_follow_fullscreen;
 	QPushButton *m_pushbutton_video_x11_select_rectangle, *m_pushbutton_video_x11_select_window;
+	QPushButton *m_pushbutton_video_x11_blocked_apps;
+	std::vector<QString> m_blocked_apps;
 	QLabel *m_label_video_x11_x, *m_label_video_x11_y, *m_label_video_x11_width, *m_label_video_x11_height;
 	QSpinBoxWithSignal *m_spinbox_video_x11_x, *m_spinbox_video_x11_y, *m_spinbox_video_x11_width, *m_spinbox_video_x11_height;
 #if SSR_USE_OPENGL_RECORDING
@@ -288,6 +290,7 @@ private slots:
 #if SSR_USE_OPENGL_RECORDING
 	void OnGLInjectDialog();
 #endif
+	void OnBlockedAppsDialog();
 	void OnContinue();
 
 public:
@@ -301,6 +304,7 @@ public:
 	inline unsigned int GetVideoX11Y() { return m_spinbox_video_x11_y->value(); }
 	inline unsigned int GetVideoX11Width() { return m_spinbox_video_x11_width->value(); }
 	inline unsigned int GetVideoX11Height() { return m_spinbox_video_x11_height->value(); }
+	inline std::vector<QString> GetBlockedApps() { return m_blocked_apps; }
 #if SSR_USE_V4L2
 	inline QString GetVideoV4L2Device() { return m_lineedit_video_v4l2_device->text(); }
 	inline unsigned int GetVideoV4L2Width() { return m_spinbox_video_v4l2_width->value(); }

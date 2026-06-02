@@ -80,12 +80,14 @@ private:
 	int64_t m_overlay_fade_start;
 	double m_overlay_opacity;
 
+	std::vector<QString> m_blocked_apps;
+
 	std::thread m_thread;
 	MutexDataPair<SharedData> m_shared_data;
 	std::atomic<bool> m_should_stop, m_error_occurred;
 
 public:
-	X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_fullscreen, bool follow_active_window = false, bool follow_window_under_cursor = false, unsigned int follow_screen = 0);
+	X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_fullscreen, bool follow_active_window = false, bool follow_window_under_cursor = false, unsigned int follow_screen = 0, const std::vector<QString>& blocked_apps = std::vector<QString>());
 	~X11Input();
 
 	// Reads the current recording rectangle.

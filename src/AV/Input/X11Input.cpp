@@ -171,6 +171,37 @@ static bool RectanglesIntersect(unsigned int ax1, unsigned int ay1, unsigned int
 	return ax1 < bx2 && ay1 < by2 && bx1 < ax2 && by1 < ay2;
 }
 
+// Reads the WM_CLASS property of a window for application blacklist matching
+static QString GetWindowClassName(Display* dpy, Window win) {
+	XClassHint class_hint;
+	if(XGetClassHint(dpy, win, &class_hint)) {
+		QString name;
+		if(class_hint.res_class != NULL) {
+			name = QString::fromLatin1(class_hint.res_class);
+		}
+		if(class_hint.res_name != NULL)
+			XFree(class_hint.res_name);
+		if(class_hint.res_class != NULL)
+			XFree(class_hint.res_class);
+		return name;
+	}
+	return QString();
+}
+
+// Returns true if the window's WM_CLASS matches any blocked app (case-insensitive, partial)
+static bool IsWindowBlocked(Display* dpy, Window win, const std::vector<QString>& blocked_apps) {
+	if(blocked_apps.empty())
+		return false;
+	QString window_class = GetWindowClassName(dpy, win);
+	if(window_class.isEmpty())
+		return false;
+	for(const QString& blocked : blocked_apps) {
+		if(window_class.contains(blocked, Qt::CaseInsensitive))
+			return true;
+	}
+	return false;
+}
+
 void X11Input::CompositeOverlay(unsigned int width, unsigned int height) {
 	if(m_overlay_image.isNull() || m_overlay_opacity <= 0.0)
 		return;
@@ -223,7 +254,7 @@ void X11Input::CompositeOverlay(unsigned int width, unsigned int height) {
 	painter.end();
 }
 
-X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_full_screen, bool follow_active_window, bool follow_window_under_cursor, unsigned int follow_screen) {
+X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_full_screen, bool follow_active_window, bool follow_window_under_cursor, unsigned int follow_screen, const std::vector<QString>& blocked_apps) {
 
 	m_x = x;
 	m_y = y;
@@ -235,6 +266,7 @@ X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned 
 	m_follow_active_window = follow_active_window;
 	m_follow_window_under_cursor = follow_window_under_cursor;
 	m_follow_screen = follow_screen;
+	m_blocked_apps = blocked_apps;
 
 	m_x11_display = NULL;
 	m_x11_image = NULL;
@@ -701,10 +733,10 @@ void X11Input::InputThread() {
 															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
 															   m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
 							window_off_screen = !intersects;
-							Logger::LogInfo("[X11Input::InputThread] active window geometry: x=" + QString::number(wx) + " y=" + QString::number(wy)
-												+ " w=" + QString::number(wwidth) + " h=" + QString::number(wheight)
-												+ " intersects=" + QString::number(intersects)
-												+ " off_screen=" + QString::number(window_off_screen));
+							// check application blacklist: blocked apps always get the overlay
+							if(!window_off_screen && IsWindowBlocked(m_x11_display, active, m_blocked_apps)) {
+								window_off_screen = true;
+							}
 							// safe clamp: cap target position to screen bounds even when window exceeds screen
 							int max_tx = (int) m_screen_bbox.m_x2 - (int) wwidth;
 							if(max_tx < (int) m_screen_bbox.m_x1) max_tx = (int) m_screen_bbox.m_x1;
@@ -733,10 +765,10 @@ void X11Input::InputThread() {
 															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
 															   m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
 							window_off_screen = !intersects;
-							Logger::LogInfo("[X11Input::InputThread] hover window geometry: x=" + QString::number(wx) + " y=" + QString::number(wy)
-												+ " w=" + QString::number(wwidth) + " h=" + QString::number(wheight)
-												+ " intersects=" + QString::number(intersects)
-												+ " off_screen=" + QString::number(window_off_screen));
+							// check application blacklist: blocked apps always get the overlay
+							if(!window_off_screen && IsWindowBlocked(m_x11_display, hover, m_blocked_apps)) {
+								window_off_screen = true;
+							}
 							// safe clamp: cap target position to screen bounds even when window exceeds screen
 							int max_tx = (int) m_screen_bbox.m_x2 - (int) wwidth;
 							if(max_tx < (int) m_screen_bbox.m_x1) max_tx = (int) m_screen_bbox.m_x1;

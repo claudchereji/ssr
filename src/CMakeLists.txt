@@ -109,6 +109,8 @@ set(sources
 	common/TempBuffer.h
 	GUI/AudioPreviewer.cpp
 	GUI/AudioPreviewer.h
+	GUI/DialogBlockedApps.cpp
+	GUI/DialogBlockedApps.h
 	GUI/DialogGLInject.cpp
 	GUI/DialogGLInject.h
 	GUI/DialogRecordSchedule.cpp

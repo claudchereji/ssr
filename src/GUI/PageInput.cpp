@@ -19,6 +19,7 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "PageInput.h"
 
+#include "DialogBlockedApps.h"
 #include "DialogGLInject.h"
 #include "Dialogs.h"
 #include "EnumStrings.h"
@@ -327,10 +328,12 @@ PageInput::PageInput(MainWindow* main_window)
 			m_checkbox_video_x11_follow_fullscreen->setToolTip(tr("Record the entire screen on which the cursor is located, rather than following the cursor position."));
 			m_pushbutton_video_x11_select_rectangle = new QPushButton(tr("Select rectangle..."), groupbox_video);
 			m_pushbutton_video_x11_select_rectangle->setToolTip(tr("Use the mouse to select the recorded rectangle."));
-			m_pushbutton_video_x11_select_window = new QPushButton(tr("Select window..."), groupbox_video);
-			m_pushbutton_video_x11_select_window->setToolTip(tr("Use the mouse to select a window to record.\n"
-																"Hint: If you click the border of a window, the entire window will be recorded (including the borders). Otherwise only\n"
-																"the client area of the window will be recorded."));
+		m_pushbutton_video_x11_select_window = new QPushButton(tr("Select window..."), groupbox_video);
+		m_pushbutton_video_x11_select_window->setToolTip(tr("Use the mouse to select a window to record.\n"
+															"Hint: If you click the border of a window, the entire window will be recorded (including the borders). Otherwise only\n"
+															"the client area of the window will be recorded."));
+		m_pushbutton_video_x11_blocked_apps = new QPushButton(tr("Blocked apps..."), groupbox_video);
+		m_pushbutton_video_x11_blocked_apps->setToolTip(tr("Select applications that should always be hidden with the 'Private Window' overlay."));
 			m_label_video_x11_x = new QLabel(tr("Left:"), groupbox_video);
 			m_spinbox_video_x11_x = new QSpinBoxWithSignal(groupbox_video);
 			m_spinbox_video_x11_x->setRange(0, SSR_MAX_IMAGE_SIZE);
@@ -429,8 +432,9 @@ PageInput::PageInput(MainWindow* main_window)
 			connect(m_spinbox_video_x11_height, SIGNAL(focusIn()), this, SLOT(OnUpdateRecordingFrame()));
 			connect(m_spinbox_video_x11_height, SIGNAL(focusOut()), this, SLOT(OnUpdateRecordingFrame()));
 			connect(m_spinbox_video_x11_height, SIGNAL(valueChanged(int)), this, SLOT(OnUpdateRecordingFrame()));
-			connect(m_pushbutton_video_x11_select_rectangle, SIGNAL(clicked()), this, SLOT(OnStartSelectRectangle()));
-			connect(m_pushbutton_video_x11_select_window, SIGNAL(clicked()), this, SLOT(OnStartSelectWindow()));
+		connect(m_pushbutton_video_x11_select_rectangle, SIGNAL(clicked()), this, SLOT(OnStartSelectRectangle()));
+		connect(m_pushbutton_video_x11_select_window, SIGNAL(clicked()), this, SLOT(OnStartSelectWindow()));
+		connect(m_pushbutton_video_x11_blocked_apps, SIGNAL(clicked()), this, SLOT(OnBlockedAppsDialog()));
 #if SSR_USE_OPENGL_RECORDING
 			connect(m_pushbutton_video_opengl_settings, SIGNAL(clicked()), this, SLOT(OnGLInjectDialog()));
 #endif
@@ -468,12 +472,13 @@ PageInput::PageInput(MainWindow* main_window)
 			QHBoxLayout *layout2 = new QHBoxLayout();
 			layout->addLayout(layout2);
 			layout2->addWidget(m_pushbutton_video_x11_select_rectangle);
-				layout2->addWidget(m_pushbutton_video_x11_select_window);
+			layout2->addWidget(m_pushbutton_video_x11_select_window);
 #if SSR_USE_OPENGL_RECORDING
-				layout2->addWidget(m_pushbutton_video_opengl_settings);
+			layout2->addWidget(m_pushbutton_video_opengl_settings);
 #endif
-				layout2->addStretch();
-			}
+			layout2->addWidget(m_pushbutton_video_x11_blocked_apps);
+			layout2->addStretch();
+		}
 			{
 				QGridLayout *layout2 = new QGridLayout();
 				layout->addLayout(layout2);
@@ -744,6 +749,10 @@ void PageInput::LoadProfileSettings(QSettings* settings) {
 	SetVideoScaledWidth(settings->value("input/video_scaled_width", 854).toUInt());
 	SetVideoScaledHeight(settings->value("input/video_scaled_height", 480).toUInt());
 	SetVideoRecordCursor(settings->value("input/video_record_cursor", true).toBool());
+	{
+		QStringList list = settings->value("input/blocked_apps", QStringList()).toStringList();
+		m_blocked_apps = std::vector<QString>(list.begin(), list.end());
+	}
 	SetAudioEnabled(settings->value("input/audio_enabled", true).toBool());
 	SetAudioBackend(StringToEnum(settings->value("input/audio_backend", QString()).toString(), default_audio_backend));
 #if SSR_USE_ALSA
@@ -798,6 +807,12 @@ void PageInput::SaveProfileSettings(QSettings* settings) {
 	settings->setValue("input/video_scaled_width", GetVideoScaledWeight());
 	settings->setValue("input/video_scaled_height", GetVideoScaledHeight());
 	settings->setValue("input/video_record_cursor", GetVideoRecordCursor());
+	{
+		QStringList list;
+		for(const QString& app : m_blocked_apps)
+			list.append(app);
+		settings->setValue("input/blocked_apps", list);
+	}
 	settings->setValue("input/audio_enabled", GetAudioEnabled());
 	settings->setValue("input/audio_backend", EnumToString(GetAudioBackend()));
 #if SSR_USE_ALSA
@@ -1383,6 +1398,13 @@ void PageInput::OnStartSelectRectangle() {
 void PageInput::OnStartSelectWindow() {
 	m_selecting_window = true;
 	StartGrabbing();
+}
+
+void PageInput::OnBlockedAppsDialog() {
+	DialogBlockedApps dialog(this, m_blocked_apps);
+	if(dialog.exec() == QDialog::Accepted) {
+		m_blocked_apps = dialog.GetBlockedApps();
+	}
 }
 
 #if SSR_USE_OPENGL_RECORDING

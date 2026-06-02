@@ -558,6 +558,7 @@ void PageRecord::StartPage() {
 	m_video_x11_area = page_input->GetVideoX11Area();
 	m_video_x11_screen_follow = page_input->GetVideoX11ScreenFollow();
 	m_video_x11_follow_fullscreen = page_input->GetVideoX11FollowFullscreen();
+	m_blocked_apps = page_input->GetBlockedApps();
 #if SSR_USE_V4L2
 	m_v4l2_device = page_input->GetVideoV4L2Device();
 #endif
@@ -962,7 +963,7 @@ void PageRecord::StartInput() {
 										   m_video_x11_area == PageInput::VIDEO_X11_AREA_CURSOR, m_video_x11_follow_fullscreen,
 										   m_video_x11_area == PageInput::VIDEO_X11_AREA_ACTIVE_WINDOW,
 										   m_video_x11_area == PageInput::VIDEO_X11_AREA_WINDOW_UNDER_CURSOR,
-										   m_video_x11_screen_follow));
+										   m_video_x11_screen_follow, m_blocked_apps));
 			connect(m_x11_input.get(), SIGNAL(CurrentRectangleChanged()), this, SLOT(OnUpdateRecordingFrame()), Qt::QueuedConnection);
 		}
 #if SSR_USE_OPENGL_RECORDING
