@@ -823,7 +823,10 @@ void PageRecord::StartOutput() {
 			}
 
 			// for X11 recording, update the video size (if possible)
-			if(m_x11_input != NULL)
+			// skip this for window-follow modes so the output stays at the monitor dimensions
+			if(m_x11_input != NULL &&
+			   !(m_video_x11_area == PageInput::VIDEO_X11_AREA_ACTIVE_WINDOW ||
+			     m_video_x11_area == PageInput::VIDEO_X11_AREA_WINDOW_UNDER_CURSOR))
 				m_x11_input->GetCurrentSize(&m_video_in_width, &m_video_in_height);
 
 #if SSR_USE_OPENGL_RECORDING
