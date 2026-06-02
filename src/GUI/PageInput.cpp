@@ -1248,16 +1248,10 @@ void PageInput::OnUpdateVideoAreaFields() {
 			GroupEnabled({m_label_video_x11_x, m_spinbox_video_x11_x, m_label_video_x11_y, m_spinbox_video_x11_y,
 						  m_label_video_x11_width, m_spinbox_video_x11_width, m_label_video_x11_height, m_spinbox_video_x11_height}, false);
 			std::vector<QRect> screen_geometries = GetScreenGeometries();
-			QRect rect;
-			if(screen_geometries.size() == 0) {
-				rect = QRect(0, 0, 0, 0);
-			} else {
-				int sc = m_combobox_x11_screens_follow->currentIndex();
-				if(sc > 0 && sc <= (int) screen_geometries.size()) {
-					rect = screen_geometries[sc - 1];
-				} else {
-					rect = CombineScreenGeometries(screen_geometries);
-				}
+			QRect rect = (screen_geometries.size() == 0)? QRect(0, 0, 0, 0) : screen_geometries[0];
+			int sc = m_combobox_x11_screens_follow->currentIndex();
+			if(sc > 0 && sc <= (int) screen_geometries.size()) {
+				rect = screen_geometries[sc - 1];
 			}
 			SetVideoX11X(rect.left());
 			SetVideoX11Y(rect.top());
@@ -1275,16 +1269,10 @@ void PageInput::OnUpdateVideoAreaFields() {
 			GroupEnabled({m_label_video_x11_x, m_spinbox_video_x11_x, m_label_video_x11_y, m_spinbox_video_x11_y,
 						  m_label_video_x11_width, m_spinbox_video_x11_width, m_label_video_x11_height, m_spinbox_video_x11_height}, false);
 			std::vector<QRect> screen_geometries = GetScreenGeometries();
-			QRect rect;
-			if(screen_geometries.size() == 0) {
-				rect = QRect(0, 0, 0, 0);
-			} else {
-				int sc = m_combobox_x11_screens_follow->currentIndex();
-				if(sc > 0 && sc <= (int) screen_geometries.size()) {
-					rect = screen_geometries[sc - 1];
-				} else {
-					rect = CombineScreenGeometries(screen_geometries);
-				}
+			QRect rect = (screen_geometries.size() == 0)? QRect(0, 0, 0, 0) : screen_geometries[0];
+			int sc = m_combobox_x11_screens_follow->currentIndex();
+			if(sc > 0 && sc <= (int) screen_geometries.size()) {
+				rect = screen_geometries[sc - 1];
 			}
 			SetVideoX11X(rect.left());
 			SetVideoX11Y(rect.top());
