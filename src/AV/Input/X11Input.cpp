@@ -696,10 +696,15 @@ void X11Input::InputThread() {
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
 						if(!(wwidth >= screen_width && wheight >= screen_height)) {
-							window_off_screen = !RectanglesIntersect(wx, wy, wwidth, wheight,
+							bool intersects = RectanglesIntersect(wx, wy, wwidth, wheight,
 															   m_screen_bbox.m_x1, m_screen_bbox.m_y1,
 															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
 															   m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
+							window_off_screen = !intersects;
+							Logger::LogInfo("[X11Input::InputThread] active window geometry: x=" + QString::number(wx) + " y=" + QString::number(wy)
+												+ " w=" + QString::number(wwidth) + " h=" + QString::number(wheight)
+												+ " intersects=" + QString::number(intersects)
+												+ " off_screen=" + QString::number(window_off_screen));
 							// safe clamp: cap target position to screen bounds even when window exceeds screen
 							int max_tx = (int) m_screen_bbox.m_x2 - (int) wwidth;
 							if(max_tx < (int) m_screen_bbox.m_x1) max_tx = (int) m_screen_bbox.m_x1;
@@ -723,10 +728,15 @@ void X11Input::InputThread() {
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
 						if(!(wwidth >= screen_width && wheight >= screen_height)) {
-							window_off_screen = !RectanglesIntersect(wx, wy, wwidth, wheight,
+							bool intersects = RectanglesIntersect(wx, wy, wwidth, wheight,
 															   m_screen_bbox.m_x1, m_screen_bbox.m_y1,
 															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
 															   m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
+							window_off_screen = !intersects;
+							Logger::LogInfo("[X11Input::InputThread] hover window geometry: x=" + QString::number(wx) + " y=" + QString::number(wy)
+												+ " w=" + QString::number(wwidth) + " h=" + QString::number(wheight)
+												+ " intersects=" + QString::number(intersects)
+												+ " off_screen=" + QString::number(window_off_screen));
 							// safe clamp: cap target position to screen bounds even when window exceeds screen
 							int max_tx = (int) m_screen_bbox.m_x2 - (int) wwidth;
 							if(max_tx < (int) m_screen_bbox.m_x1) max_tx = (int) m_screen_bbox.m_x1;
