@@ -695,13 +695,18 @@ void X11Input::InputThread() {
 					if(GetWindowGeometry(m_x11_display, m_x11_root, active, &wx, &wy, &wwidth, &wheight)) {
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
-						if(wwidth <= screen_width && wheight <= screen_height) {
+						if(!(wwidth >= screen_width && wheight >= screen_height)) {
 							window_off_screen = !RectanglesIntersect(wx, wy, wwidth, wheight,
 															   m_screen_bbox.m_x1, m_screen_bbox.m_y1,
 															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
 															   m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
-							target_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
-							target_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
+							// safe clamp: cap target position to screen bounds even when window exceeds screen
+							int max_tx = (int) m_screen_bbox.m_x2 - (int) wwidth;
+							if(max_tx < (int) m_screen_bbox.m_x1) max_tx = (int) m_screen_bbox.m_x1;
+							int max_ty = (int) m_screen_bbox.m_y2 - (int) wheight;
+							if(max_ty < (int) m_screen_bbox.m_y1) max_ty = (int) m_screen_bbox.m_y1;
+							target_x = clamp((int) wx, (int) m_screen_bbox.m_x1, max_tx);
+							target_y = clamp((int) wy, (int) m_screen_bbox.m_y1, max_ty);
 							target_w = std::min(wwidth, m_screen_bbox.m_x2 - target_x);
 							target_h = std::min(wheight, m_screen_bbox.m_y2 - target_y);
 							current_target = active;
@@ -717,13 +722,18 @@ void X11Input::InputThread() {
 					if(GetWindowGeometry(m_x11_display, m_x11_root, hover, &wx, &wy, &wwidth, &wheight)) {
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
-						if(wwidth <= screen_width && wheight <= screen_height) {
+						if(!(wwidth >= screen_width && wheight >= screen_height)) {
 							window_off_screen = !RectanglesIntersect(wx, wy, wwidth, wheight,
 															   m_screen_bbox.m_x1, m_screen_bbox.m_y1,
 															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
 															   m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
-							target_x = clamp((int) wx, (int) m_screen_bbox.m_x1, (int) m_screen_bbox.m_x2 - (int) wwidth);
-							target_y = clamp((int) wy, (int) m_screen_bbox.m_y1, (int) m_screen_bbox.m_y2 - (int) wheight);
+							// safe clamp: cap target position to screen bounds even when window exceeds screen
+							int max_tx = (int) m_screen_bbox.m_x2 - (int) wwidth;
+							if(max_tx < (int) m_screen_bbox.m_x1) max_tx = (int) m_screen_bbox.m_x1;
+							int max_ty = (int) m_screen_bbox.m_y2 - (int) wheight;
+							if(max_ty < (int) m_screen_bbox.m_y1) max_ty = (int) m_screen_bbox.m_y1;
+							target_x = clamp((int) wx, (int) m_screen_bbox.m_x1, max_tx);
+							target_y = clamp((int) wy, (int) m_screen_bbox.m_y1, max_ty);
 							target_w = std::min(wwidth, m_screen_bbox.m_x2 - target_x);
 							target_h = std::min(wheight, m_screen_bbox.m_y2 - target_y);
 							current_target = hover;
