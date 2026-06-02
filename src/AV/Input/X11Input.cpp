@@ -172,28 +172,23 @@ static bool RectanglesIntersect(unsigned int ax1, unsigned int ay1, unsigned int
 }
 
 void X11Input::CompositeOverlay(unsigned int width, unsigned int height) {
-	if(m_overlay_image.isNull()) {
-        Logger::LogInfo("[X11Input::CompositeOverlay] overlay image is null");
-                return;
-        }
-        if(m_overlay_opacity <= 0.0) {
-                Logger::LogInfo("[X11Input::CompositeOverlay] opacity is zero, skipping");
-                return;
-        }
+	if(m_overlay_image.isNull() || m_overlay_opacity <= 0.0)
+		return;
 
-        Logger::LogInfo("[X11Input::CompositeOverlay] compositing overlay at opacity=" + QString::number(m_overlay_opacity)
-                                          + " size=" + QString::number(width) + "x" + QString::number(height));
-
-	// scale overlay to fit inside the grab rectangle with black bars
+	// build a full-frame composite image (black background + centered text)
+	// cache it so we only rebuild when dimensions change
 	if(m_overlay_scaled.isNull() || m_overlay_scaled_w != width || m_overlay_scaled_h != height) {
-		m_overlay_scaled = m_overlay_image.scaled((int) width, (int) height, Qt::KeepAspectRatio, Qt::FastTransformation);
+		QImage text = m_overlay_image.scaled((int) width, (int) height, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+		m_overlay_scaled = QImage((int) width, (int) height, QImage::Format_ARGB32);
+		m_overlay_scaled.fill(Qt::black);
+		QPainter cachePainter(&m_overlay_scaled);
+		int off_x = ((int) width - text.width()) / 2;
+		int off_y = ((int) height - text.height()) / 2;
+		cachePainter.drawImage(off_x, off_y, text);
+		cachePainter.end();
 		m_overlay_scaled_w = width;
 		m_overlay_scaled_h = height;
 	}
-
-	// center the scaled overlay on a black background
-	int off_x = ((int) width - m_overlay_scaled.width()) / 2;
-	int off_y = ((int) height - m_overlay_scaled.height()) / 2;
 
 	// determine QImage format for the XImage buffer
 	AVPixelFormat av_fmt = X11ImageGetPixelFormat(m_x11_image);
@@ -208,11 +203,8 @@ void X11Input::CompositeOverlay(unsigned int width, unsigned int height) {
 		default: break;
 	}
 
-	Logger::LogInfo("[X11Input::CompositeOverlay] XImage format=" + QString::number(av_fmt) + " mapped to QImage format=" + QString::number(q_fmt));
-
 	if(q_fmt == QImage::Format_Invalid) {
 		// unsupported format: fill with black instead of compositing
-		Logger::LogWarning("[X11Input::CompositeOverlay] " + Logger::tr("Warning: Unsupported XImage format for overlay compositing, filling black."));
 		X11ImageClearRectangle(m_x11_image, 0, 0, width, height);
 		return;
 	}
@@ -220,14 +212,14 @@ void X11Input::CompositeOverlay(unsigned int width, unsigned int height) {
 	// wrap XImage buffer in a QImage
 	QImage frame((uchar*) m_x11_image->data, (int) width, (int) height, m_x11_image->bytes_per_line, q_fmt);
 
+	// fade the entire frame towards the composite image
 	QPainter painter(&frame);
 	if(!painter.isActive()) {
-		Logger::LogWarning("[X11Input::CompositeOverlay] " + Logger::tr("Warning: QPainter could not initialize on frame, filling black."));
 		X11ImageClearRectangle(m_x11_image, 0, 0, width, height);
 		return;
 	}
 	painter.setOpacity(m_overlay_opacity);
-	painter.drawImage(off_x, off_y, m_overlay_scaled);
+	painter.drawImage(0, 0, m_overlay_scaled);
 	painter.end();
 }
 
@@ -269,13 +261,7 @@ X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned 
 		m_overlay_image = QImage(":/private_window.png");
 		if(m_overlay_image.isNull()) {
 			Logger::LogWarning("[X11Input::Init] " + Logger::tr("Warning: Could not load private window overlay image."));
-		} else {
-			Logger::LogInfo("[X11Input::Init] " + Logger::tr("Loaded private window overlay image (%1x%2).").arg(m_overlay_image.width()).arg(m_overlay_image.height()));
 		}
-	} else {
-		Logger::LogInfo("[X11Input::Init] overlay disabled: follow_screen=" + QString::number(m_follow_screen)
-						  + " active=" + QString::number(m_follow_active_window)
-						  + " cursor=" + QString::number(m_follow_window_under_cursor));
 	}
 
 	m_screen_bbox = Rect(m_x, m_y, m_x + m_width, m_y + m_height);
@@ -754,7 +740,6 @@ void X11Input::InputThread() {
 					m_overlay_fading = true;
 					m_overlay_fade_in = should_be_active;
 					m_overlay_fade_start = timestamp;
-					Logger::LogInfo("[X11Input::InputThread] " + Logger::tr("Overlay fade %1 triggered (window off-screen=%2)").arg(should_be_active ? "in" : "out").arg(window_off_screen ? "true" : "false"));
 				}
 				if(m_overlay_fading) {
 					const int64_t FADE_DURATION = 300000; // 300ms
@@ -762,7 +747,6 @@ void X11Input::InputThread() {
 					if(elapsed >= FADE_DURATION) {
 						m_overlay_opacity = m_overlay_fade_in ? 1.0 : 0.0;
 						m_overlay_fading = false;
-						Logger::LogInfo("[X11Input::InputThread] overlay fade complete, opacity=" + QString::number(m_overlay_opacity));
 					} else {
 						double t = (double) elapsed / (double) FADE_DURATION;
 						m_overlay_opacity = m_overlay_fade_in ? t : (1.0 - t);
