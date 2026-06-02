@@ -695,7 +695,7 @@ void X11Input::InputThread() {
 					if(GetWindowGeometry(m_x11_display, m_x11_root, active, &wx, &wy, &wwidth, &wheight)) {
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
-						if(!(wwidth >= screen_width && wheight >= screen_height)) {
+						if(wwidth <= screen_width && wheight <= screen_height) {
 							window_off_screen = !RectanglesIntersect(wx, wy, wwidth, wheight,
 															   m_screen_bbox.m_x1, m_screen_bbox.m_y1,
 															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
@@ -717,7 +717,7 @@ void X11Input::InputThread() {
 					if(GetWindowGeometry(m_x11_display, m_x11_root, hover, &wx, &wy, &wwidth, &wheight)) {
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
-						if(!(wwidth >= screen_width && wheight >= screen_height)) {
+						if(wwidth <= screen_width && wheight <= screen_height) {
 							window_off_screen = !RectanglesIntersect(wx, wy, wwidth, wheight,
 															   m_screen_bbox.m_x1, m_screen_bbox.m_y1,
 															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
