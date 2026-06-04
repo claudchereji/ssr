@@ -68,55 +68,11 @@ int64_t V4L2Output::GetNextVideoTimestamp() {
 void V4L2Output::ReadVideoFrame(unsigned int width, unsigned int height, const uint8_t* const* data, const int* stride, AVPixelFormat format, int colorspace, int64_t timestamp) {
 	Q_UNUSED(timestamp);
 
-	// The output device is always exactly 1280x720 (akvcam forces this from config)
-	const unsigned int out_width = V4L2_OUTPUT_MAX_WIDTH;
-	const unsigned int out_height = V4L2_OUTPUT_MAX_HEIGHT;
-	const size_t out_frame_size = out_width * out_height * 3;
-
-	// Calculate aspect-ratio-preserving dimensions that fit inside 1280x720
-	double scale_x = (double) out_width / (double) width;
-	double scale_y = (double) out_height / (double) height;
-	double scale = std::min(scale_x, scale_y);
-	unsigned int scaled_w = (unsigned int) (width * scale);
-	unsigned int scaled_h = (unsigned int) (height * scale);
-	// Ensure even dimensions for safety
-	scaled_w = scaled_w / 2 * 2;
-	scaled_h = scaled_h / 2 * 2;
-
-	// Create the final 1280x720 buffer
+	// Copy raw frame data to avoid referencing source buffers that may be reused
+	size_t raw_size = stride[0] * height;
 	std::shared_ptr<TempBuffer<uint8_t>> buffer = std::make_shared<TempBuffer<uint8_t>>();
-	buffer->Alloc(out_frame_size);
-	uint8_t* out_data = buffer->GetData();
-
-	if(scaled_w == out_width && scaled_h == out_height) {
-		// Exact fit, direct scale
-		int out_stride = out_width * 3;
-		m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
-							out_width, out_height, AV_PIX_FMT_BGR24, SWS_CS_DEFAULT,
-							&out_data, &out_stride);
-	} else {
-		// Scale to temp buffer, then copy centered with black bars
-		TempBuffer<uint8_t> scaled_buffer;
-		scaled_buffer.Alloc(scaled_w * scaled_h * 3);
-		uint8_t* scaled_data = scaled_buffer.GetData();
-		int scaled_stride = scaled_w * 3;
-
-		m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
-							scaled_w, scaled_h, AV_PIX_FMT_BGR24, SWS_CS_DEFAULT,
-							&scaled_data, &scaled_stride);
-
-		// Clear to black
-		memset(out_data, 0, out_frame_size);
-
-		// Copy centered
-		unsigned int offset_x = (out_width - scaled_w) / 2;
-		unsigned int offset_y = (out_height - scaled_h) / 2;
-		for(unsigned int y = 0; y < scaled_h; ++y) {
-			memcpy(out_data + (offset_y + y) * out_width * 3 + offset_x * 3,
-				   scaled_data + y * scaled_stride,
-				   scaled_w * 3);
-		}
-	}
+	buffer->Alloc(raw_size);
+	memcpy(buffer->GetData(), data[0], raw_size);
 
 	SharedLock lock(&m_shared_data);
 	if(lock->error_occurred)
@@ -129,7 +85,11 @@ void V4L2Output::ReadVideoFrame(unsigned int width, unsigned int height, const u
 
 	FrameData fd;
 	fd.buffer = buffer;
-	fd.length = out_frame_size;
+	fd.width = width;
+	fd.height = height;
+	fd.stride = stride[0];
+	fd.format = format;
+	fd.colorspace = colorspace;
 	lock->queue.push_back(fd);
 }
 
@@ -137,6 +97,10 @@ void V4L2Output::WriterThread() {
 	try {
 
 		Logger::LogInfo("[V4L2Output::WriterThread] " + Logger::tr("Virtual camera output thread started."));
+
+		const unsigned int out_width = V4L2_OUTPUT_MAX_WIDTH;
+		const unsigned int out_height = V4L2_OUTPUT_MAX_HEIGHT;
+		const size_t out_frame_size = out_width * out_height * 3;
 
 		while(true) {
 			FrameData fd;
@@ -153,6 +117,55 @@ void V4L2Output::WriterThread() {
 				lock->queue.pop_front();
 			}
 
+			// Build input data pointers for FastScaler
+			const uint8_t* in_data = fd.buffer->GetData();
+			int in_stride = fd.stride;
+
+			// Calculate aspect-ratio-preserving dimensions that fit inside 1280x720
+			double scale_x = (double) out_width / (double) fd.width;
+			double scale_y = (double) out_height / (double) fd.height;
+			double scale = std::min(scale_x, scale_y);
+			unsigned int scaled_w = (unsigned int) (fd.width * scale);
+			unsigned int scaled_h = (unsigned int) (fd.height * scale);
+			// Ensure even dimensions for safety
+			scaled_w = scaled_w / 2 * 2;
+			scaled_h = scaled_h / 2 * 2;
+
+			// Create the final 1280x720 buffer
+			TempBuffer<uint8_t> out_buffer;
+			out_buffer.Alloc(out_frame_size);
+			uint8_t* out_data = out_buffer.GetData();
+
+			if(scaled_w == out_width && scaled_h == out_height) {
+				// Exact fit, direct scale
+				int out_stride = out_width * 3;
+				m_fast_scaler.Scale(fd.width, fd.height, fd.format, fd.colorspace, &in_data, &in_stride,
+									out_width, out_height, AV_PIX_FMT_BGR24, SWS_CS_DEFAULT,
+									&out_data, &out_stride);
+			} else {
+				// Scale to temp buffer, then copy centered with black bars
+				TempBuffer<uint8_t> scaled_buffer;
+				scaled_buffer.Alloc(scaled_w * scaled_h * 3);
+				uint8_t* scaled_data = scaled_buffer.GetData();
+				int scaled_stride = scaled_w * 3;
+
+				m_fast_scaler.Scale(fd.width, fd.height, fd.format, fd.colorspace, &in_data, &in_stride,
+									scaled_w, scaled_h, AV_PIX_FMT_BGR24, SWS_CS_DEFAULT,
+									&scaled_data, &scaled_stride);
+
+				// Clear to black
+				memset(out_data, 0, out_frame_size);
+
+				// Copy centered
+				unsigned int offset_x = (out_width - scaled_w) / 2;
+				unsigned int offset_y = (out_height - scaled_h) / 2;
+				for(unsigned int y = 0; y < scaled_h; ++y) {
+					memcpy(out_data + (offset_y + y) * out_width * 3 + offset_x * 3,
+						   scaled_data + y * scaled_stride,
+						   scaled_w * 3);
+				}
+			}
+
 			// Dequeue a buffer from the driver
 			struct v4l2_buffer buf;
 			memset(&buf, 0, sizeof(buf));
@@ -167,8 +180,8 @@ void V4L2Output::WriterThread() {
 			}
 
 			// Copy frame data into the mmap'd buffer
-			size_t copy_len = std::min(fd.length, m_buffers[buf.index].length);
-			memcpy(m_buffers[buf.index].data, fd.buffer->GetData(), copy_len);
+			size_t copy_len = std::min(out_frame_size, m_buffers[buf.index].length);
+			memcpy(m_buffers[buf.index].data, out_data, copy_len);
 			buf.bytesused = copy_len;
 
 			// Queue the buffer back

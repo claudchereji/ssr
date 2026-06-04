@@ -34,7 +34,11 @@ class V4L2Output : public VideoSink {
 private:
 	struct FrameData {
 		std::shared_ptr<TempBuffer<uint8_t>> buffer;
-		size_t length;
+		unsigned int width;
+		unsigned int height;
+		int stride;
+		AVPixelFormat format;
+		int colorspace;
 	};
 	struct SharedData {
 		std::deque<FrameData> queue;
