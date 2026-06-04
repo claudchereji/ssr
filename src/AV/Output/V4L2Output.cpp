@@ -23,6 +23,10 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "Logger.h"
 
+// Browser-friendly resolutions for virtual cameras
+static const unsigned int V4L2_OUTPUT_MAX_WIDTH = 1280;
+static const unsigned int V4L2_OUTPUT_MAX_HEIGHT = 720;
+
 V4L2Output::V4L2Output(const QString& device, unsigned int width, unsigned int height, unsigned int frame_rate)
 	: m_device(device), m_width(width), m_height(height), m_frame_rate(frame_rate), m_fd(-1), m_frame_size(0) {
 
@@ -160,6 +164,22 @@ bool V4L2Output::InitDevice() {
 		return false;
 	}
 
+	// Cap resolution to browser-friendly maximum, preserving aspect ratio
+	if(m_width > V4L2_OUTPUT_MAX_WIDTH || m_height > V4L2_OUTPUT_MAX_HEIGHT) {
+		double scale_x = (double) V4L2_OUTPUT_MAX_WIDTH / (double) m_width;
+		double scale_y = (double) V4L2_OUTPUT_MAX_HEIGHT / (double) m_height;
+		double scale = std::min(scale_x, scale_y);
+		unsigned int new_width = (unsigned int) (m_width * scale);
+		unsigned int new_height = (unsigned int) (m_height * scale);
+		// Ensure even dimensions for YUY2
+		new_width = new_width / 2 * 2;
+		new_height = new_height / 2 * 2;
+		Logger::LogInfo("[V4L2Output::InitDevice] " + Logger::tr("Capping resolution from %1x%2 to %3x%4 for browser compatibility.")
+						   .arg(m_width).arg(m_height).arg(new_width).arg(new_height));
+		m_width = new_width;
+		m_height = new_height;
+	}
+
 	// Set output format to YUY2
 	struct v4l2_format fmt;
 	memset(&fmt, 0, sizeof(fmt));
@@ -174,21 +194,6 @@ bool V4L2Output::InitDevice() {
 		::close(m_fd);
 		m_fd = -1;
 		return false;
-	}
-	
-	// For v4l2loopback, the capture side needs to know the format too
-	// Try to set the format on the capture side (this is a no-op on real V4L2 devices)
-	struct v4l2_format cap_fmt;
-	memset(&cap_fmt, 0, sizeof(cap_fmt));
-	cap_fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	::ioctl(m_fd, VIDIOC_G_FMT, &cap_fmt);
-	if(cap_fmt.fmt.pix.width != m_width || cap_fmt.fmt.pix.height != m_height ||
-	   cap_fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
-		cap_fmt.fmt.pix.width = m_width;
-		cap_fmt.fmt.pix.height = m_height;
-		cap_fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-		cap_fmt.fmt.pix.field = V4L2_FIELD_NONE;
-		::ioctl(m_fd, VIDIOC_S_FMT, &cap_fmt);
 	}
 
 	// Update dimensions if driver adjusted them
