@@ -67,6 +67,8 @@ set(sources
 	AV/Output/SyncDiagram.h
 	AV/Output/Synchronizer.cpp
 	AV/Output/Synchronizer.h
+	AV/Output/V4L2Output.cpp
+	AV/Output/V4L2Output.h
 	AV/Output/VideoEncoder.cpp
 	AV/Output/VideoEncoder.h
 	AV/Output/X264Presets.cpp

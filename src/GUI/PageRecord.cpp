@@ -40,6 +40,7 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 #if SSR_USE_V4L2
 #include "V4L2Input.h"
+#include "V4L2Output.h"
 #endif
 #if SSR_USE_PIPEWIRE
 #include "PipeWireInput.h"
@@ -339,14 +340,30 @@ PageRecord::PageRecord(MainWindow* main_window)
 
 				connect(m_pushbutton_preview_start_stop, SIGNAL(clicked()), this, SLOT(OnPreviewStartStop()));
 
-				QVBoxLayout *layout = new QVBoxLayout(groupbox_preview);
-				{
-					m_stacked_layout_preview = new QStackedLayout();
-					layout->addLayout(m_stacked_layout_preview);
-					m_stacked_layout_preview->addWidget(m_preview_page1);
-					m_stacked_layout_preview->addWidget(m_preview_page2);
-				}
-				layout->addWidget(m_pushbutton_preview_start_stop);
+			QVBoxLayout *layout = new QVBoxLayout(groupbox_preview);
+			{
+				m_stacked_layout_preview = new QStackedLayout();
+				layout->addLayout(m_stacked_layout_preview);
+				m_stacked_layout_preview->addWidget(m_preview_page1);
+				m_stacked_layout_preview->addWidget(m_preview_page2);
+			}
+#if SSR_USE_V4L2
+			{
+				m_checkbox_v4l2_output_enable = new QCheckBox(tr("Stream to virtual camera"), groupbox_preview);
+				m_checkbox_v4l2_output_enable->setToolTip(tr("When enabled, the video will also be sent to a virtual camera device."));
+				m_label_v4l2_output_device = new QLabel(tr("Virtual camera device:"), groupbox_preview);
+				m_lineedit_v4l2_output_device = new QLineEdit(groupbox_preview);
+				m_lineedit_v4l2_output_device->setToolTip(tr("The V4L2 output device to use (e.g. /dev/video7)."));
+				connect(m_checkbox_v4l2_output_enable, SIGNAL(clicked()), this, SLOT(OnUpdateV4L2Output()));
+				connect(m_lineedit_v4l2_output_device, SIGNAL(editingFinished()), this, SLOT(OnUpdateV4L2Output()));
+				QHBoxLayout *layout2 = new QHBoxLayout();
+				layout->addLayout(layout2);
+				layout2->addWidget(m_checkbox_v4l2_output_enable);
+				layout2->addWidget(m_label_v4l2_output_device);
+				layout2->addWidget(m_lineedit_v4l2_output_device);
+			}
+#endif
+			layout->addWidget(m_pushbutton_preview_start_stop);
 			}
 
 			splitter_horizontal->addWidget(groupbox_information);
@@ -473,6 +490,10 @@ void PageRecord::LoadSettings(QSettings *settings) {
 #endif
 	SetShowRecordingArea(settings->value("record/show_recording_area", false).toBool());
 	SetPreviewFrameRate(settings->value("record/preview_frame_rate", 10).toUInt());
+#if SSR_USE_V4L2
+	m_checkbox_v4l2_output_enable->setChecked(settings->value("record/v4l2_output_enable", false).toBool());
+	m_lineedit_v4l2_output_device->setText(settings->value("record/v4l2_output_device", "/dev/video7").toString());
+#endif
 	SetScheduleTimeZone(StringToEnum(settings->value("record/schedule_time_zone", QString()).toString(), SCHEDULE_TIME_ZONE_LOCAL));
 	unsigned int num_entries = clamp(settings->value("record/schedule_num_entries", 0).toUInt(), 0u, 1000u);
 	m_schedule_entries.clear();
@@ -512,6 +533,10 @@ void PageRecord::SaveSettings(QSettings *settings) {
 #endif
 	settings->setValue("record/show_recording_area", GetShowRecordingArea());
 	settings->setValue("record/preview_frame_rate", GetPreviewFrameRate());
+#if SSR_USE_V4L2
+	settings->setValue("record/v4l2_output_enable", m_checkbox_v4l2_output_enable->isChecked());
+	settings->setValue("record/v4l2_output_device", m_lineedit_v4l2_output_device->text());
+#endif
 	settings->setValue("record/schedule_time_zone", EnumToString(GetScheduleTimeZone()));
 	settings->setValue("record/schedule_num_entries", (unsigned int) m_schedule_entries.size());
 	for(unsigned int i = 0; i < m_schedule_entries.size(); ++i) {
@@ -749,6 +774,10 @@ void PageRecord::StopPage(bool save) {
 
 	StopOutput(true);
 	StopInput();
+
+#if SSR_USE_V4L2
+	m_v4l2_output.reset();
+#endif
 
 	Logger::LogInfo("[PageRecord::StopPage] " + tr("Stopping page ..."));
 
@@ -1152,6 +1181,24 @@ void PageRecord::UpdateInput() {
 		m_audio_previewer->ConnectAudioSource(NULL);
 	}
 
+#if SSR_USE_V4L2
+	if(m_checkbox_v4l2_output_enable->isChecked() && video_source != NULL) {
+		if(m_v4l2_output == NULL) {
+			try {
+				m_v4l2_output.reset(new V4L2Output(m_lineedit_v4l2_output_device->text(), m_video_in_width, m_video_in_height, m_video_frame_rate));
+			} catch(...) {
+				Logger::LogError("[PageRecord::UpdateInput] " + Logger::tr("Failed to create virtual camera output."));
+				m_checkbox_v4l2_output_enable->setChecked(false);
+			}
+		}
+		if(m_v4l2_output != NULL) {
+			m_v4l2_output->ConnectVideoSource(video_source, PRIORITY_PREVIEW);
+		}
+	} else {
+		m_v4l2_output.reset();
+	}
+#endif
+
 }
 
 void PageRecord::UpdateSysTray() {
@@ -1279,6 +1326,15 @@ void PageRecord::OnUpdateRecordingFrame() {
 		m_recording_frame.reset();
 	}
 }
+
+#if SSR_USE_V4L2
+void PageRecord::OnUpdateV4L2Output() {
+	if(m_page_started) {
+		m_v4l2_output.reset();
+		UpdateInput();
+	}
+}
+#endif
 
 void PageRecord::OnRecordStart() {
 	if(m_main_window->IsBusy())
