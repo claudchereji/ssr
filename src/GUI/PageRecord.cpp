@@ -58,31 +58,6 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 #include "VideoPreviewer.h"
 #include "AudioPreviewer.h"
 
-#if SSR_USE_V4L2
-static QString FindV4L2LoopbackDevice() {
-	for(int i = 0; i < 20; ++i) {
-		QString path = QString("/dev/video%1").arg(i);
-		QFileInfo fi(path);
-		if(!fi.exists())
-			continue;
-		int fd = open(path.toUtf8().constData(), O_RDONLY);
-		if(fd < 0)
-			continue;
-		struct v4l2_capability cap;
-		memset(&cap, 0, sizeof(cap));
-		if(ioctl(fd, VIDIOC_QUERYCAP, &cap) >= 0) {
-			QString driver = QString::fromUtf8((const char*) cap.driver);
-			if(driver == "v4l2 loopback") {
-				close(fd);
-				return path;
-			}
-		}
-		close(fd);
-	}
-	return QString();
-}
-#endif
-
 static QString GetNewSegmentFile(const QString& file, bool add_timestamp) {
 	QFileInfo fi(file);
 	QDateTime now = QDateTime::currentDateTime();
@@ -517,13 +492,7 @@ void PageRecord::LoadSettings(QSettings *settings) {
 	SetPreviewFrameRate(settings->value("record/preview_frame_rate", 10).toUInt());
 #if SSR_USE_V4L2
 	m_checkbox_v4l2_output_enable->setChecked(settings->value("record/v4l2_output_enable", false).toBool());
-	QString default_device = settings->value("record/v4l2_output_device", QString()).toString();
-	if(default_device.isEmpty()) {
-		default_device = FindV4L2LoopbackDevice();
-		if(default_device.isEmpty())
-			default_device = "/dev/video10";
-	}
-	m_lineedit_v4l2_output_device->setText(default_device);
+	m_lineedit_v4l2_output_device->setText(settings->value("record/v4l2_output_device", "/dev/video7").toString());
 #endif
 	SetScheduleTimeZone(StringToEnum(settings->value("record/schedule_time_zone", QString()).toString(), SCHEDULE_TIME_ZONE_LOCAL));
 	unsigned int num_entries = clamp(settings->value("record/schedule_num_entries", 0).toUInt(), 0u, 1000u);

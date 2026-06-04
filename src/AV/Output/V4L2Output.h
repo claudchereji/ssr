@@ -43,12 +43,18 @@ private:
 	};
 	typedef MutexDataPair<SharedData>::Lock SharedLock;
 
+	struct Buffer {
+		void* data;
+		size_t length;
+	};
+
 	QString m_device;
 	unsigned int m_width;
 	unsigned int m_height;
 	unsigned int m_frame_rate;
 
 	int m_fd;
+	std::vector<Buffer> m_buffers;
 	unsigned int m_frame_size;
 
 	FastScaler m_fast_scaler;
