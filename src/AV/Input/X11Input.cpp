@@ -164,10 +164,10 @@ static void X11ImageDrawCursor(Display* dpy, XImage* image, int recording_area_x
 }
 
 // Returns true if two rectangles intersect
-static bool RectanglesIntersect(unsigned int ax1, unsigned int ay1, unsigned int aw, unsigned int ah,
-								unsigned int bx1, unsigned int by1, unsigned int bw, unsigned int bh) {
-	unsigned int ax2 = ax1 + aw, ay2 = ay1 + ah;
-	unsigned int bx2 = bx1 + bw, by2 = by1 + bh;
+static bool RectanglesIntersect(int ax1, int ay1, unsigned int aw, unsigned int ah,
+								int bx1, int by1, unsigned int bw, unsigned int bh) {
+	int ax2 = ax1 + (int)aw, ay2 = ay1 + (int)ah;
+	int bx2 = bx1 + (int)bw, by2 = by1 + (int)bh;
 	return ax1 < bx2 && ay1 < by2 && bx1 < ax2 && by1 < ay2;
 }
 
@@ -197,6 +197,20 @@ static bool IsWindowBlocked(Display* dpy, Window win, const std::vector<QString>
 		return false;
 	for(const QString& blocked : blocked_apps) {
 		if(window_class.contains(blocked, Qt::CaseInsensitive))
+			return true;
+	}
+	return false;
+}
+
+// Returns true if the window intersects any monitor other than the current one
+static bool IsWindowOnOtherMonitor(int wx, int wy, unsigned int wwidth, unsigned int wheight,
+									 const std::vector<X11Input::Rect>& screen_rects, const X11Input::Rect& current_screen) {
+	for(const auto& rect : screen_rects) {
+		if(rect.m_x1 == current_screen.m_x1 && rect.m_y1 == current_screen.m_y1 &&
+		   rect.m_x2 == current_screen.m_x2 && rect.m_y2 == current_screen.m_y2)
+			continue;
+		if(RectanglesIntersect(wx, wy, wwidth, wheight, (int)rect.m_x1, (int)rect.m_y1,
+							   rect.m_x2 - rect.m_x1, rect.m_y2 - rect.m_y1))
 			return true;
 	}
 	return false;
@@ -638,7 +652,7 @@ static Window FindWindowUnderCursor(Display* dpy, Window root) {
 }
 
 // Gets the absolute geometry of a window. Returns false on failure.
-static bool GetWindowGeometry(Display* dpy, Window root, Window win, unsigned int* x, unsigned int* y, unsigned int* width, unsigned int* height) {
+static bool GetWindowGeometry(Display* dpy, Window root, Window win, int* x, int* y, unsigned int* width, unsigned int* height) {
 
 	XWindowAttributes attr;
 	if(!XGetWindowAttributes(dpy, win, &attr))
@@ -719,34 +733,43 @@ void X11Input::InputThread() {
 			Window current_target = None;
 			unsigned int target_x = grab_x, target_y = grab_y, target_w = grab_width, target_h = grab_height;
 			bool window_off_screen = false;
+			bool eval_intersects_current = false, eval_intersects_other = false, eval_blocked = false;
+			Window eval_win = None;
+			int eval_wx = 0, eval_wy = 0;
+			unsigned int eval_wwidth = 0, eval_wheight = 0;
 
 			if(m_follow_active_window) {
 				Window active = FindActiveWindow(m_x11_display, m_x11_root);
 				if(active != None) {
-					unsigned int wx, wy, wwidth, wheight;
+					int wx, wy;
+					unsigned int wwidth, wheight;
 					if(GetWindowGeometry(m_x11_display, m_x11_root, active, &wx, &wy, &wwidth, &wheight)) {
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
 						if(!(wwidth >= screen_width && wheight >= screen_height)) {
-							bool intersects = RectanglesIntersect(wx, wy, wwidth, wheight,
-															   m_screen_bbox.m_x1, m_screen_bbox.m_y1,
-															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
-															   m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
-							window_off_screen = !intersects;
-							// check application blacklist: blocked apps always get the overlay
-							if(!window_off_screen && IsWindowBlocked(m_x11_display, active, m_blocked_apps)) {
-								window_off_screen = true;
-							}
+							bool intersects_current = RectanglesIntersect(wx, wy, wwidth, wheight,
+																(int)m_screen_bbox.m_x1, (int)m_screen_bbox.m_y1,
+																m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
+																m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
+							bool intersects_other = IsWindowOnOtherMonitor(wx, wy, wwidth, wheight, m_screen_rects, m_screen_bbox);
+							bool blocked = IsWindowBlocked(m_x11_display, active, m_blocked_apps);
+							window_off_screen = blocked || (!intersects_current && intersects_other);
 							// safe clamp: cap target position to screen bounds even when window exceeds screen
 							int max_tx = (int) m_screen_bbox.m_x2 - (int) wwidth;
 							if(max_tx < (int) m_screen_bbox.m_x1) max_tx = (int) m_screen_bbox.m_x1;
 							int max_ty = (int) m_screen_bbox.m_y2 - (int) wheight;
 							if(max_ty < (int) m_screen_bbox.m_y1) max_ty = (int) m_screen_bbox.m_y1;
-							target_x = clamp((int) wx, (int) m_screen_bbox.m_x1, max_tx);
-							target_y = clamp((int) wy, (int) m_screen_bbox.m_y1, max_ty);
+							target_x = clamp(wx, (int) m_screen_bbox.m_x1, max_tx);
+							target_y = clamp(wy, (int) m_screen_bbox.m_y1, max_ty);
 							target_w = std::min(wwidth, m_screen_bbox.m_x2 - target_x);
 							target_h = std::min(wheight, m_screen_bbox.m_y2 - target_y);
 							current_target = active;
+							eval_intersects_current = intersects_current;
+							eval_intersects_other = intersects_other;
+							eval_blocked = blocked;
+							eval_win = active;
+							eval_wx = wx; eval_wy = wy;
+							eval_wwidth = wwidth; eval_wheight = wheight;
 						}
 					}
 				}
@@ -755,39 +778,55 @@ void X11Input::InputThread() {
 			if(m_follow_window_under_cursor) {
 				Window hover = FindWindowUnderCursor(m_x11_display, m_x11_root);
 				if(hover != None) {
-					unsigned int wx, wy, wwidth, wheight;
+					int wx, wy;
+					unsigned int wwidth, wheight;
 					if(GetWindowGeometry(m_x11_display, m_x11_root, hover, &wx, &wy, &wwidth, &wheight)) {
 						unsigned int screen_width = m_screen_bbox.m_x2 - m_screen_bbox.m_x1;
 						unsigned int screen_height = m_screen_bbox.m_y2 - m_screen_bbox.m_y1;
 						if(!(wwidth >= screen_width && wheight >= screen_height)) {
-							bool intersects = RectanglesIntersect(wx, wy, wwidth, wheight,
-															   m_screen_bbox.m_x1, m_screen_bbox.m_y1,
-															   m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
-															   m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
-							window_off_screen = !intersects;
-							// check application blacklist: blocked apps always get the overlay
-							if(!window_off_screen && IsWindowBlocked(m_x11_display, hover, m_blocked_apps)) {
-								window_off_screen = true;
-							}
+							bool intersects_current = RectanglesIntersect(wx, wy, wwidth, wheight,
+																(int)m_screen_bbox.m_x1, (int)m_screen_bbox.m_y1,
+																m_screen_bbox.m_x2 - m_screen_bbox.m_x1,
+																m_screen_bbox.m_y2 - m_screen_bbox.m_y1);
+							bool intersects_other = IsWindowOnOtherMonitor(wx, wy, wwidth, wheight, m_screen_rects, m_screen_bbox);
+							bool blocked = IsWindowBlocked(m_x11_display, hover, m_blocked_apps);
+							window_off_screen = blocked || (!intersects_current && intersects_other);
 							// safe clamp: cap target position to screen bounds even when window exceeds screen
 							int max_tx = (int) m_screen_bbox.m_x2 - (int) wwidth;
 							if(max_tx < (int) m_screen_bbox.m_x1) max_tx = (int) m_screen_bbox.m_x1;
 							int max_ty = (int) m_screen_bbox.m_y2 - (int) wheight;
 							if(max_ty < (int) m_screen_bbox.m_y1) max_ty = (int) m_screen_bbox.m_y1;
-							target_x = clamp((int) wx, (int) m_screen_bbox.m_x1, max_tx);
-							target_y = clamp((int) wy, (int) m_screen_bbox.m_y1, max_ty);
+							target_x = clamp(wx, (int) m_screen_bbox.m_x1, max_tx);
+							target_y = clamp(wy, (int) m_screen_bbox.m_y1, max_ty);
 							target_w = std::min(wwidth, m_screen_bbox.m_x2 - target_x);
 							target_h = std::min(wheight, m_screen_bbox.m_y2 - target_y);
 							current_target = hover;
+							eval_intersects_current = intersects_current;
+							eval_intersects_other = intersects_other;
+							eval_blocked = blocked;
+							eval_win = hover;
+							eval_wx = wx; eval_wy = wy;
+							eval_wwidth = wwidth; eval_wheight = wheight;
 						}
 					}
 				}
 			}
 
-			// update overlay fade state when window goes fully off monitored screen
+			// update overlay fade state based on privacy rules
 			if(!m_overlay_image.isNull() && (m_follow_active_window || m_follow_window_under_cursor)) {
 				bool should_be_active = window_off_screen;
 				if(should_be_active != m_overlay_active) {
+					if(eval_win != None) {
+						Logger::LogInfo("[X11Input::InputThread] WindowFollow overlay transition: win=" + QString::number((quint64)eval_win)
+										+ " geo=" + QString::number(eval_wx) + "," + QString::number(eval_wy)
+										+ "," + QString::number(eval_wwidth) + "x" + QString::number(eval_wheight)
+										+ " current_screen=" + QString::number(m_screen_bbox.m_x1) + "," + QString::number(m_screen_bbox.m_y1)
+										+ "," + QString::number(m_screen_bbox.m_x2) + "," + QString::number(m_screen_bbox.m_y2)
+										+ " intersects_current=" + QString::number(eval_intersects_current)
+										+ " intersects_other=" + QString::number(eval_intersects_other)
+										+ " blocked=" + QString::number(eval_blocked)
+										+ " should_be_active=" + QString::number(should_be_active));
+					}
 					m_overlay_active = should_be_active;
 					m_overlay_fading = true;
 					m_overlay_fade_in = should_be_active;

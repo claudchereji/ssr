@@ -28,12 +28,13 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 class X11Input : public QObject, public VideoSource {
 	Q_OBJECT
 
-private:
+public:
 	struct Rect {
 		unsigned int m_x1, m_y1, m_x2, m_y2;
 		inline Rect() {}
 		inline Rect(unsigned int x1, unsigned int y1, unsigned int x2, unsigned int y2) : m_x1(x1), m_y1(y1), m_x2(x2), m_y2(y2) {}
 	};
+private:
 	struct SharedData {
 		unsigned int m_current_x, m_current_y, m_current_width, m_current_height;
 	};
