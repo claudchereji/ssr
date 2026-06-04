@@ -24,7 +24,7 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 #include "Logger.h"
 
 V4L2Output::V4L2Output(const QString& device, unsigned int width, unsigned int height, unsigned int frame_rate)
-	: m_device(device), m_width(width), m_height(height), m_frame_rate(frame_rate), m_fd(-1) {
+	: m_device(device), m_width(width), m_height(height), m_frame_rate(frame_rate), m_fd(-1), m_frame_size(0) {
 
 	{
 		SharedLock lock(&m_shared_data);
@@ -64,16 +64,16 @@ int64_t V4L2Output::GetNextVideoTimestamp() {
 void V4L2Output::ReadVideoFrame(unsigned int width, unsigned int height, const uint8_t* const* data, const int* stride, AVPixelFormat format, int colorspace, int64_t timestamp) {
 	Q_UNUSED(timestamp);
 
-	// Convert frame to RGB24 at target resolution
-	size_t frame_size = m_width * m_height * 3;
+	// Convert frame to YUY2 at target resolution
+	size_t frame_size = m_width * m_height * 2;
 	std::shared_ptr<TempBuffer<uint8_t>> buffer = std::make_shared<TempBuffer<uint8_t>>();
 	buffer->Alloc(frame_size);
 
 	uint8_t* out_data = buffer->GetData();
-	int out_stride = m_width * 3;
+	int out_stride = m_width * 2;
 
 	m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
-						m_width, m_height, AV_PIX_FMT_RGB24, SWS_CS_DEFAULT,
+						m_width, m_height, AV_PIX_FMT_YUYV422, SWS_CS_DEFAULT,
 						&out_data, &out_stride);
 
 	SharedLock lock(&m_shared_data);
@@ -96,6 +96,9 @@ void V4L2Output::WriterThread() {
 
 		Logger::LogInfo("[V4L2Output::WriterThread] " + Logger::tr("Virtual camera output thread started."));
 
+		int64_t frame_interval = 1000000 / m_frame_rate;
+		int64_t next_frame_time = hrt_time_micro();
+
 		while(true) {
 			FrameData fd;
 			{
@@ -104,33 +107,27 @@ void V4L2Output::WriterThread() {
 					break;
 				if(lock->queue.empty()) {
 					lock.lock().unlock();
-					usleep(5000);
+					usleep(1000);
 					continue;
 				}
 				fd = lock->queue.front();
 				lock->queue.pop_front();
 			}
 
-			// Write to V4L2 device
-			struct v4l2_buffer buf;
-			memset(&buf, 0, sizeof(buf));
-			buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
-			buf.memory = V4L2_MEMORY_MMAP;
-
-			if(::ioctl(m_fd, VIDIOC_DQBUF, &buf) < 0) {
-				if(errno == EAGAIN) {
-					// No buffer available yet, skip frame
+			// Write frame to V4L2 device using write()
+			ssize_t written = ::write(m_fd, fd.buffer->GetData(), fd.length);
+			if(written < 0) {
+				if(errno == EAGAIN || errno == EWOULDBLOCK)
 					continue;
-				}
-				Logger::LogError("[V4L2Output::WriterThread] " + Logger::tr("Failed to dequeue buffer."));
+				Logger::LogError("[V4L2Output::WriterThread] " + Logger::tr("Failed to write frame: %1").arg(strerror(errno)));
 				continue;
 			}
 
-			size_t copy_len = std::min(fd.length, m_buffer_lengths[buf.index]);
-			memcpy(m_buffer_data[buf.index], fd.buffer->GetData(), copy_len);
-
-			if(::ioctl(m_fd, VIDIOC_QBUF, &buf) < 0) {
-				Logger::LogError("[V4L2Output::WriterThread] " + Logger::tr("Failed to queue buffer."));
+			// Frame rate control
+			next_frame_time += frame_interval;
+			int64_t sleep_time = next_frame_time - hrt_time_micro();
+			if(sleep_time > 0) {
+				usleep(sleep_time);
 			}
 		}
 
@@ -148,113 +145,61 @@ void V4L2Output::WriterThread() {
 }
 
 bool V4L2Output::InitDevice() {
-	m_fd = ::open(m_device.toUtf8().constData(), O_RDWR | O_NONBLOCK, 0);
+	m_fd = ::open(m_device.toUtf8().constData(), O_RDWR);
 	if(m_fd < 0) {
-		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to open V4L2 device %1.").arg(m_device));
+		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to open V4L2 device %1: %2").arg(m_device).arg(strerror(errno)));
 		return false;
 	}
 
 	struct v4l2_capability cap;
 	memset(&cap, 0, sizeof(cap));
 	if(::ioctl(m_fd, VIDIOC_QUERYCAP, &cap) < 0) {
-		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to query capabilities."));
+		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to query capabilities: %1").arg(strerror(errno)));
 		::close(m_fd);
 		m_fd = -1;
 		return false;
 	}
 
+	// Set output format to YUY2
 	struct v4l2_format fmt;
 	memset(&fmt, 0, sizeof(fmt));
 	fmt.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
 	fmt.fmt.pix.width = m_width;
 	fmt.fmt.pix.height = m_height;
-	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
+	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
 	fmt.fmt.pix.field = V4L2_FIELD_NONE;
+	fmt.fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M;
 	if(::ioctl(m_fd, VIDIOC_S_FMT, &fmt) < 0) {
-		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to set format."));
+		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to set format: %1").arg(strerror(errno)));
 		::close(m_fd);
 		m_fd = -1;
 		return false;
 	}
 
-	// Update width/height in case driver changed them
+	// Update dimensions if driver adjusted them
 	if(fmt.fmt.pix.width != m_width || fmt.fmt.pix.height != m_height) {
-		Logger::LogWarning("[V4L2Output::InitDevice] " + Logger::tr("Resolution adjusted to %1x%2.")
-						   .arg(fmt.fmt.pix.width).arg(fmt.fmt.pix.height));
+		Logger::LogWarning("[V4L2Output::InitDevice] " + Logger::tr("Resolution adjusted from %1x%2 to %3x%4.")
+						   .arg(m_width).arg(m_height).arg(fmt.fmt.pix.width).arg(fmt.fmt.pix.height));
 		m_width = fmt.fmt.pix.width;
 		m_height = fmt.fmt.pix.height;
 	}
 
-	struct v4l2_requestbuffers req;
-	memset(&req, 0, sizeof(req));
-	req.count = 4;
-	req.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
-	req.memory = V4L2_MEMORY_MMAP;
-	if(::ioctl(m_fd, VIDIOC_REQBUFS, &req) < 0) {
-		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to request buffers."));
+	if(fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
+		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Device does not support YUY2 format."));
 		::close(m_fd);
 		m_fd = -1;
 		return false;
 	}
 
-	m_buffer_data.resize(req.count);
-	m_buffer_lengths.resize(req.count);
-
-	for(unsigned int i = 0; i < req.count; ++i) {
-		struct v4l2_buffer buf;
-		memset(&buf, 0, sizeof(buf));
-		buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
-		buf.memory = V4L2_MEMORY_MMAP;
-		buf.index = i;
-		if(::ioctl(m_fd, VIDIOC_QUERYBUF, &buf) < 0) {
-			Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to query buffer."));
-			FreeDevice();
-			return false;
-		}
-		m_buffer_data[i] = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, m_fd, buf.m.offset);
-		m_buffer_lengths[i] = buf.length;
-		if(m_buffer_data[i] == MAP_FAILED) {
-			Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to mmap buffer."));
-			FreeDevice();
-			return false;
-		}
-	}
-
-	for(unsigned int i = 0; i < req.count; ++i) {
-		struct v4l2_buffer buf;
-		memset(&buf, 0, sizeof(buf));
-		buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
-		buf.memory = V4L2_MEMORY_MMAP;
-		buf.index = i;
-		if(::ioctl(m_fd, VIDIOC_QBUF, &buf) < 0) {
-			Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to queue initial buffer."));
-			FreeDevice();
-			return false;
-		}
-	}
-
-	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
-	if(::ioctl(m_fd, VIDIOC_STREAMON, &type) < 0) {
-		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to start streaming."));
-		FreeDevice();
-		return false;
-	}
+	m_frame_size = m_width * m_height * 2;
+	Logger::LogInfo("[V4L2Output::InitDevice] " + Logger::tr("Virtual camera output initialized: %1x%2 YUY2 @ %3 fps, frame size=%4 bytes")
+					.arg(m_width).arg(m_height).arg(m_frame_rate).arg(m_frame_size));
 
 	return true;
 }
 
 void V4L2Output::FreeDevice() {
 	if(m_fd >= 0) {
-		enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
-		::ioctl(m_fd, VIDIOC_STREAMOFF, &type);
-
-		for(size_t i = 0; i < m_buffer_data.size(); ++i) {
-			if(m_buffer_data[i] != NULL && m_buffer_data[i] != MAP_FAILED)
-				munmap(m_buffer_data[i], m_buffer_lengths[i]);
-		}
-		m_buffer_data.clear();
-		m_buffer_lengths.clear();
-
 		::close(m_fd);
 		m_fd = -1;
 	}

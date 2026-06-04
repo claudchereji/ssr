@@ -492,7 +492,7 @@ void PageRecord::LoadSettings(QSettings *settings) {
 	SetPreviewFrameRate(settings->value("record/preview_frame_rate", 10).toUInt());
 #if SSR_USE_V4L2
 	m_checkbox_v4l2_output_enable->setChecked(settings->value("record/v4l2_output_enable", false).toBool());
-	m_lineedit_v4l2_output_device->setText(settings->value("record/v4l2_output_device", "/dev/video7").toString());
+	m_lineedit_v4l2_output_device->setText(settings->value("record/v4l2_output_device", "/dev/video10").toString());
 #endif
 	SetScheduleTimeZone(StringToEnum(settings->value("record/schedule_time_zone", QString()).toString(), SCHEDULE_TIME_ZONE_LOCAL));
 	unsigned int num_entries = clamp(settings->value("record/schedule_num_entries", 0).toUInt(), 0u, 1000u);

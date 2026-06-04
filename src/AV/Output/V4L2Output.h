@@ -49,8 +49,7 @@ private:
 	unsigned int m_frame_rate;
 
 	int m_fd;
-	std::vector<void*> m_buffer_data;
-	std::vector<size_t> m_buffer_lengths;
+	unsigned int m_frame_size;
 
 	FastScaler m_fast_scaler;
 	MutexDataPair<SharedData> m_shared_data;
