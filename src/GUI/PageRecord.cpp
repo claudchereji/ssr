@@ -1329,6 +1329,15 @@ void PageRecord::OnUpdateRecordingFrame() {
 
 #if SSR_USE_V4L2
 void PageRecord::OnUpdateV4L2Output() {
+	if(m_checkbox_v4l2_output_enable->isChecked() && m_output_started) {
+		QSettings settings("MaartenBaert", "SimpleScreenRecorder");
+		if(!settings.value("record/v4l2_output_warned", false).toBool()) {
+			MessageBox(QMessageBox::Warning, this, MainWindow::WINDOW_CAPTION,
+				tr("Enabling virtual camera while recording is active may cause audio choppiness due to increased CPU load."),
+				BUTTON_OK);
+			settings.setValue("record/v4l2_output_warned", true);
+		}
+	}
 	if(m_page_started) {
 		m_v4l2_output.reset();
 		UpdateInput();

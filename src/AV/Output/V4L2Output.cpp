@@ -92,7 +92,7 @@ void V4L2Output::ReadVideoFrame(unsigned int width, unsigned int height, const u
 		// Exact fit, direct scale
 		int out_stride = out_width * 3;
 		m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
-							out_width, out_height, AV_PIX_FMT_RGB24, SWS_CS_DEFAULT,
+							out_width, out_height, AV_PIX_FMT_BGR24, SWS_CS_DEFAULT,
 							&out_data, &out_stride);
 	} else {
 		// Scale to temp buffer, then copy centered with black bars
@@ -102,7 +102,7 @@ void V4L2Output::ReadVideoFrame(unsigned int width, unsigned int height, const u
 		int scaled_stride = scaled_w * 3;
 
 		m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
-							scaled_w, scaled_h, AV_PIX_FMT_RGB24, SWS_CS_DEFAULT,
+							scaled_w, scaled_h, AV_PIX_FMT_BGR24, SWS_CS_DEFAULT,
 							&scaled_data, &scaled_stride);
 
 		// Clear to black
@@ -215,13 +215,13 @@ bool V4L2Output::InitDevice() {
 		return false;
 	}
 
-	// Set output format to RGB24
+	// Set output format to BGR24
 	struct v4l2_format fmt;
 	memset(&fmt, 0, sizeof(fmt));
 	fmt.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
 	fmt.fmt.pix.width = m_width;
 	fmt.fmt.pix.height = m_height;
-	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
+	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_BGR24;
 	fmt.fmt.pix.field = V4L2_FIELD_NONE;
 	if(::ioctl(m_fd, VIDIOC_S_FMT, &fmt) < 0) {
 		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to set format: %1").arg(strerror(errno)));
@@ -238,8 +238,8 @@ bool V4L2Output::InitDevice() {
 		m_height = fmt.fmt.pix.height;
 	}
 
-	if(fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_RGB24) {
-		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Device does not support RGB24 format."));
+	if(fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_BGR24) {
+		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Device does not support BGR24 format."));
 		::close(m_fd);
 		m_fd = -1;
 		return false;
@@ -303,7 +303,7 @@ bool V4L2Output::InitDevice() {
 		return false;
 	}
 
-	Logger::LogInfo("[V4L2Output::InitDevice] " + Logger::tr("Virtual camera output initialized: %1x%2 RGB24 @ %3 fps, frame size=%4 bytes")
+	Logger::LogInfo("[V4L2Output::InitDevice] " + Logger::tr("Virtual camera output initialized: %1x%2 BGR24 @ %3 fps, frame size=%4 bytes")
 					.arg(m_width).arg(m_height).arg(m_frame_rate).arg(m_frame_size));
 
 	return true;
