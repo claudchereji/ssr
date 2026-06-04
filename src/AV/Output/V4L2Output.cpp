@@ -145,7 +145,7 @@ void V4L2Output::WriterThread() {
 }
 
 bool V4L2Output::InitDevice() {
-	m_fd = ::open(m_device.toUtf8().constData(), O_RDWR);
+	m_fd = ::open(m_device.toUtf8().constData(), O_WRONLY);
 	if(m_fd < 0) {
 		Logger::LogError("[V4L2Output::InitDevice] " + Logger::tr("Failed to open V4L2 device %1: %2").arg(m_device).arg(strerror(errno)));
 		return false;
@@ -174,6 +174,21 @@ bool V4L2Output::InitDevice() {
 		::close(m_fd);
 		m_fd = -1;
 		return false;
+	}
+	
+	// For v4l2loopback, the capture side needs to know the format too
+	// Try to set the format on the capture side (this is a no-op on real V4L2 devices)
+	struct v4l2_format cap_fmt;
+	memset(&cap_fmt, 0, sizeof(cap_fmt));
+	cap_fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	::ioctl(m_fd, VIDIOC_G_FMT, &cap_fmt);
+	if(cap_fmt.fmt.pix.width != m_width || cap_fmt.fmt.pix.height != m_height ||
+	   cap_fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
+		cap_fmt.fmt.pix.width = m_width;
+		cap_fmt.fmt.pix.height = m_height;
+		cap_fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+		cap_fmt.fmt.pix.field = V4L2_FIELD_NONE;
+		::ioctl(m_fd, VIDIOC_S_FMT, &cap_fmt);
 	}
 
 	// Update dimensions if driver adjusted them
