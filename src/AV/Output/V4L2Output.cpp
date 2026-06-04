@@ -68,17 +68,55 @@ int64_t V4L2Output::GetNextVideoTimestamp() {
 void V4L2Output::ReadVideoFrame(unsigned int width, unsigned int height, const uint8_t* const* data, const int* stride, AVPixelFormat format, int colorspace, int64_t timestamp) {
 	Q_UNUSED(timestamp);
 
-	// Convert frame to RGB24 at target resolution
-	size_t frame_size = m_width * m_height * 3;
+	// The output device is always exactly 1280x720 (akvcam forces this from config)
+	const unsigned int out_width = V4L2_OUTPUT_MAX_WIDTH;
+	const unsigned int out_height = V4L2_OUTPUT_MAX_HEIGHT;
+	const size_t out_frame_size = out_width * out_height * 3;
+
+	// Calculate aspect-ratio-preserving dimensions that fit inside 1280x720
+	double scale_x = (double) out_width / (double) width;
+	double scale_y = (double) out_height / (double) height;
+	double scale = std::min(scale_x, scale_y);
+	unsigned int scaled_w = (unsigned int) (width * scale);
+	unsigned int scaled_h = (unsigned int) (height * scale);
+	// Ensure even dimensions for safety
+	scaled_w = scaled_w / 2 * 2;
+	scaled_h = scaled_h / 2 * 2;
+
+	// Create the final 1280x720 buffer
 	std::shared_ptr<TempBuffer<uint8_t>> buffer = std::make_shared<TempBuffer<uint8_t>>();
-	buffer->Alloc(frame_size);
-
+	buffer->Alloc(out_frame_size);
 	uint8_t* out_data = buffer->GetData();
-	int out_stride = m_width * 3;
 
-	m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
-						m_width, m_height, AV_PIX_FMT_RGB24, SWS_CS_DEFAULT,
-						&out_data, &out_stride);
+	if(scaled_w == out_width && scaled_h == out_height) {
+		// Exact fit, direct scale
+		int out_stride = out_width * 3;
+		m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
+							out_width, out_height, AV_PIX_FMT_RGB24, SWS_CS_DEFAULT,
+							&out_data, &out_stride);
+	} else {
+		// Scale to temp buffer, then copy centered with black bars
+		TempBuffer<uint8_t> scaled_buffer;
+		scaled_buffer.Alloc(scaled_w * scaled_h * 3);
+		uint8_t* scaled_data = scaled_buffer.GetData();
+		int scaled_stride = scaled_w * 3;
+
+		m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
+							scaled_w, scaled_h, AV_PIX_FMT_RGB24, SWS_CS_DEFAULT,
+							&scaled_data, &scaled_stride);
+
+		// Clear to black
+		memset(out_data, 0, out_frame_size);
+
+		// Copy centered
+		unsigned int offset_x = (out_width - scaled_w) / 2;
+		unsigned int offset_y = (out_height - scaled_h) / 2;
+		for(unsigned int y = 0; y < scaled_h; ++y) {
+			memcpy(out_data + (offset_y + y) * out_width * 3 + offset_x * 3,
+				   scaled_data + y * scaled_stride,
+				   scaled_w * 3);
+		}
+	}
 
 	SharedLock lock(&m_shared_data);
 	if(lock->error_occurred)
@@ -91,7 +129,7 @@ void V4L2Output::ReadVideoFrame(unsigned int width, unsigned int height, const u
 
 	FrameData fd;
 	fd.buffer = buffer;
-	fd.length = frame_size;
+	fd.length = out_frame_size;
 	lock->queue.push_back(fd);
 }
 
@@ -153,20 +191,13 @@ void V4L2Output::WriterThread() {
 }
 
 bool V4L2Output::InitDevice() {
-	// Cap resolution to browser-friendly maximum, preserving aspect ratio
-	if(m_width > V4L2_OUTPUT_MAX_WIDTH || m_height > V4L2_OUTPUT_MAX_HEIGHT) {
-		double scale_x = (double) V4L2_OUTPUT_MAX_WIDTH / (double) m_width;
-		double scale_y = (double) V4L2_OUTPUT_MAX_HEIGHT / (double) m_height;
-		double scale = std::min(scale_x, scale_y);
-		unsigned int new_width = (unsigned int) (m_width * scale);
-		unsigned int new_height = (unsigned int) (m_height * scale);
-		// Ensure even dimensions
-		new_width = new_width / 2 * 2;
-		new_height = new_height / 2 * 2;
-		Logger::LogInfo("[V4L2Output::InitDevice] " + Logger::tr("Capping resolution from %1x%2 to %3x%4 for browser compatibility.")
-						   .arg(m_width).arg(m_height).arg(new_width).arg(new_height));
-		m_width = new_width;
-		m_height = new_height;
+	// Force exact 1280x720 because akvcam's config only supports this resolution
+	if(m_width > V4L2_OUTPUT_MAX_WIDTH || m_height > V4L2_OUTPUT_MAX_HEIGHT ||
+	   m_width != V4L2_OUTPUT_MAX_WIDTH || m_height != V4L2_OUTPUT_MAX_HEIGHT) {
+		Logger::LogInfo("[V4L2Output::InitDevice] " + Logger::tr("Forcing resolution to %1x%2 for akvcam/browser compatibility.")
+						   .arg(V4L2_OUTPUT_MAX_WIDTH).arg(V4L2_OUTPUT_MAX_HEIGHT));
+		m_width = V4L2_OUTPUT_MAX_WIDTH;
+		m_height = V4L2_OUTPUT_MAX_HEIGHT;
 	}
 
 	m_fd = ::open(m_device.toUtf8().constData(), O_RDWR | O_NONBLOCK, 0);
