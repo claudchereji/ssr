@@ -41,7 +41,6 @@ class GLInjectInput;
 #endif
 #if SSR_USE_V4L2
 class V4L2Input;
-class V4L2Output;
 #endif
 #if SSR_USE_PIPEWIRE
 class PipeWireInput;
@@ -117,9 +116,6 @@ private:
 #endif
 #if SSR_USE_V4L2
 	std::unique_ptr<V4L2Input> m_v4l2_input;
-	std::unique_ptr<V4L2Output> m_v4l2_output;
-	bool m_v4l2_output_enable;
-	QString m_v4l2_output_device;
 #endif
 #if SSR_USE_PIPEWIRE
 	std::unique_ptr<PipeWireInput> m_pipewire_input;
@@ -164,11 +160,7 @@ private:
 	QLabel *m_label_mic_icon;
 	AudioPreviewer *m_audio_previewer;
 	QPushButton *m_pushbutton_preview_start_stop;
-#if SSR_USE_V4L2
-	QCheckBox *m_checkbox_v4l2_output_enable;
-	QLabel *m_label_v4l2_output_device;
-	QLineEdit *m_lineedit_v4l2_output_device;
-#endif
+
 
 	QTextEdit *m_textedit_log;
 
@@ -252,9 +244,7 @@ public slots:
 	void OnUpdateSoundNotifications();
 #endif
 	void OnUpdateRecordingFrame();
-#if SSR_USE_V4L2
-	void OnUpdateV4L2Output();
-#endif
+
 
 public slots:
 	void OnRecordStart();
