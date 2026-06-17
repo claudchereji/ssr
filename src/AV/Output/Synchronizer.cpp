@@ -450,32 +450,52 @@ void Synchronizer::ReadVideoFrame(unsigned int width, unsigned int height, const
 	std::unique_ptr<AVFrameWrapper> converted_frame = CreateVideoFrame(m_output_format->m_video_width, m_output_format->m_video_height, m_output_format->m_video_pixel_format, NULL);
 
 	if(m_output_format->m_video_letterbox && (width != m_output_format->m_video_width || height != m_output_format->m_video_height)) {
-		// calculate aspect-ratio-preserving dimensions that fit inside the output frame
-		double scale_x = (double) m_output_format->m_video_width / (double) width;
-		double scale_y = (double) m_output_format->m_video_height / (double) height;
-		double scale = std::min(scale_x, scale_y);
-		unsigned int scaled_w = (unsigned int) (scale * width + 0.5);
-		unsigned int scaled_h = (unsigned int) (scale * height + 0.5);
-		// ensure even dimensions for YUV formats
-		if(m_output_format->m_video_pixel_format == AV_PIX_FMT_YUV420P || m_output_format->m_video_pixel_format == AV_PIX_FMT_NV12 ||
-		   m_output_format->m_video_pixel_format == AV_PIX_FMT_YUV422P) {
-			scaled_w = scaled_w / 2 * 2;
-			scaled_h = scaled_h / 2 * 2;
-		}
-		if(scaled_w == m_output_format->m_video_width && scaled_h == m_output_format->m_video_height) {
-			// exact fit, use direct scaling
+		bool is_yuv = (m_output_format->m_video_pixel_format == AV_PIX_FMT_YUV420P ||
+					   m_output_format->m_video_pixel_format == AV_PIX_FMT_NV12 ||
+					   m_output_format->m_video_pixel_format == AV_PIX_FMT_YUV422P);
+		if(width <= m_output_format->m_video_width && height <= m_output_format->m_video_height) {
+			// the captured window is smaller than the output canvas: place it 1:1 in the center
+			// without scaling, so the content stays pixel-sharp instead of being blurrily upscaled
+			unsigned int native_w = width, native_h = height;
+			if(is_yuv) {
+				native_w = native_w / 2 * 2;
+				native_h = native_h / 2 * 2;
+			}
+			std::unique_ptr<AVFrameWrapper> native_frame = CreateVideoFrame(native_w, native_h, m_output_format->m_video_pixel_format, NULL);
 			videolock->m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
-					m_output_format->m_video_width, m_output_format->m_video_height, m_output_format->m_video_pixel_format, m_output_format->m_video_colorspace,
-					converted_frame->GetFrame()->data, converted_frame->GetFrame()->linesize);
-		} else {
-			// scale to temp frame, then center with black bars
-			std::unique_ptr<AVFrameWrapper> scaled_frame = CreateVideoFrame(scaled_w, scaled_h, m_output_format->m_video_pixel_format, NULL);
-			videolock->m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
-					scaled_w, scaled_h, m_output_format->m_video_pixel_format, m_output_format->m_video_colorspace,
-					scaled_frame->GetFrame()->data, scaled_frame->GetFrame()->linesize);
+					native_w, native_h, m_output_format->m_video_pixel_format, m_output_format->m_video_colorspace,
+					native_frame->GetFrame()->data, native_frame->GetFrame()->linesize);
 			ClearVideoFrameToBlack(converted_frame->GetFrame(), m_output_format->m_video_pixel_format, m_output_format->m_video_width, m_output_format->m_video_height);
 			CopyFrameCentered(converted_frame->GetFrame(), m_output_format->m_video_pixel_format, m_output_format->m_video_width, m_output_format->m_video_height,
-							  scaled_frame->GetFrame(), scaled_w, scaled_h);
+							  native_frame->GetFrame(), native_w, native_h);
+		} else {
+			// the captured window is larger than the output canvas: downscale to fit while
+			// preserving aspect ratio, then center with black bars
+			double scale_x = (double) m_output_format->m_video_width / (double) width;
+			double scale_y = (double) m_output_format->m_video_height / (double) height;
+			double scale = std::min(scale_x, scale_y);
+			unsigned int scaled_w = (unsigned int) (scale * width + 0.5);
+			unsigned int scaled_h = (unsigned int) (scale * height + 0.5);
+			// ensure even dimensions for YUV formats
+			if(is_yuv) {
+				scaled_w = scaled_w / 2 * 2;
+				scaled_h = scaled_h / 2 * 2;
+			}
+			if(scaled_w == m_output_format->m_video_width && scaled_h == m_output_format->m_video_height) {
+				// exact fit, use direct scaling
+				videolock->m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
+						m_output_format->m_video_width, m_output_format->m_video_height, m_output_format->m_video_pixel_format, m_output_format->m_video_colorspace,
+						converted_frame->GetFrame()->data, converted_frame->GetFrame()->linesize);
+			} else {
+				// scale to temp frame, then center with black bars
+				std::unique_ptr<AVFrameWrapper> scaled_frame = CreateVideoFrame(scaled_w, scaled_h, m_output_format->m_video_pixel_format, NULL);
+				videolock->m_fast_scaler.Scale(width, height, format, colorspace, data, stride,
+						scaled_w, scaled_h, m_output_format->m_video_pixel_format, m_output_format->m_video_colorspace,
+						scaled_frame->GetFrame()->data, scaled_frame->GetFrame()->linesize);
+				ClearVideoFrameToBlack(converted_frame->GetFrame(), m_output_format->m_video_pixel_format, m_output_format->m_video_width, m_output_format->m_video_height);
+				CopyFrameCentered(converted_frame->GetFrame(), m_output_format->m_video_pixel_format, m_output_format->m_video_width, m_output_format->m_video_height,
+								  scaled_frame->GetFrame(), scaled_w, scaled_h);
+			}
 		}
 	} else {
 		// scale and convert the frame to the right format
