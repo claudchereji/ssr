@@ -575,6 +575,24 @@ void PageRecord::StartPage() {
 	if(m_video_backend == PageInput::VIDEO_BACKEND_X11) {
 		m_video_in_width = page_input->GetVideoX11Width();
 		m_video_in_height = page_input->GetVideoX11Height();
+		// For window-follow modes with "All screens" selected, auto-select the active monitor
+		// as the one containing the mouse cursor at record start. This makes the output canvas
+		// the cursor's monitor and enables the private-window overlay (which requires a specific
+		// screen) for every window not on that monitor.
+		if((m_video_x11_area == PageInput::VIDEO_X11_AREA_ACTIVE_WINDOW ||
+			m_video_x11_area == PageInput::VIDEO_X11_AREA_WINDOW_UNDER_CURSOR) &&
+		   m_video_x11_screen_follow == 0) {
+			unsigned int idx = page_input->GetScreenIndexAtCursor();
+			if(idx > 0) {
+				QRect r = page_input->GetScreenGeometryAtIndex(idx);
+				m_video_x11_screen_follow = idx;
+				m_video_x = r.left();
+				m_video_y = r.top();
+				m_video_in_width = r.width();
+				m_video_in_height = r.height();
+				Logger::LogInfo("[PageRecord::StartPage] " + tr("Window-follow: active monitor auto-selected from cursor (screen %1).").arg(idx));
+			}
+		}
 	}
 #if SSR_USE_V4L2
 	if(m_video_backend == PageInput::VIDEO_BACKEND_V4L2) {
