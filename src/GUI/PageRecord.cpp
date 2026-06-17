@@ -867,6 +867,9 @@ void PageRecord::StartOutput() {
 			} else {
 				// If the user did not explicitly select scaling, then don't force scaling just because the recording area is one pixel too large.
 				// One missing row/column of pixels is probably better than a blurry video (and scaling is SLOW).
+				if(m_video_in_width % 2 != 0 || m_video_in_height % 2 != 0) {
+					Logger::LogInfo("[PageRecord::StartOutput] " + tr("Note: The recording area has an odd width or height; one row/column of pixels will be dropped to keep even dimensions."));
+				}
 				m_video_in_width = m_video_in_width / 2 * 2;
 				m_video_in_height = m_video_in_height / 2 * 2;
 			m_output_settings.video_width = m_video_in_width;
