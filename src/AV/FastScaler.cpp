@@ -133,7 +133,7 @@ void FastScaler::Scale(unsigned int in_width, unsigned int in_height, AVPixelFor
 	m_sws_context = sws_getCachedContext(m_sws_context,
 										 in_width, in_height, in_format,
 										 out_width, out_height, out_format,
-										 SWS_BILINEAR, NULL, NULL, NULL);
+										 SWS_LANCZOS, NULL, NULL, NULL);
 	if(m_sws_context == NULL) {
 		Logger::LogError("[FastScaler::Scale] " + Logger::tr("Error: Can't get swscale context!", "Don't translate 'swscale'"));
 		throw LibavException();
