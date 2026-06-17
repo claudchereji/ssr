@@ -305,6 +305,10 @@ public:
 	inline unsigned int GetVideoX11Width() { return m_spinbox_video_x11_width->value(); }
 	inline unsigned int GetVideoX11Height() { return m_spinbox_video_x11_height->value(); }
 	inline std::vector<QString> GetBlockedApps() { return m_blocked_apps; }
+	// returns the 1-based screen index containing the mouse cursor, or 0 if unknown
+	unsigned int GetScreenIndexAtCursor();
+	// returns the geometry of a 1-based screen index, or an empty QRect if out of range
+	QRect GetScreenGeometryAtIndex(unsigned int index_1based);
 #if SSR_USE_V4L2
 	inline QString GetVideoV4L2Device() { return m_lineedit_video_v4l2_device->text(); }
 	inline unsigned int GetVideoV4L2Width() { return m_spinbox_video_v4l2_width->value(); }

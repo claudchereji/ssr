@@ -1300,6 +1300,23 @@ void PageInput::OnUpdateVideoAreaFields() {
 	}
 }
 
+unsigned int PageInput::GetScreenIndexAtCursor() {
+	QPoint cursor = GetMousePhysicalCoordinates();
+	std::vector<QRect> screen_geometries = GetScreenGeometries();
+	for(size_t i = 0; i < screen_geometries.size(); ++i) {
+		if(screen_geometries[i].contains(cursor))
+			return (unsigned int) (i + 1);
+	}
+	return 0;
+}
+
+QRect PageInput::GetScreenGeometryAtIndex(unsigned int index_1based) {
+	std::vector<QRect> screen_geometries = GetScreenGeometries();
+	if(index_1based == 0 || index_1based > screen_geometries.size())
+		return QRect();
+	return screen_geometries[index_1based - 1];
+}
+
 void PageInput::OnUpdateVideoScaleFields() {
 	bool enabled = GetVideoScalingEnabled();
 	GroupEnabled({m_label_video_scaled_width, m_spinbox_video_scaled_weight, m_label_video_scaled_height, m_spinbox_video_scaled_height}, enabled);
