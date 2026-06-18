@@ -33,3 +33,6 @@ private-*
 # Build artifacts and local notes
 *.deb
 How to install.txt
+
+__pycache__/
+build_*

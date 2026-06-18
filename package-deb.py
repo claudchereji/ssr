@@ -13,7 +13,7 @@ PKG_DIR = os.path.join(PROJECT_ROOT, "packaging")
 
 # Package metadata
 PACKAGE_NAME = "simplescreenrecorder"
-VERSION = "0.4.4+custom5"
+VERSION = "0.4.4+custom6"
 SECTION = "video"
 PRIORITY = "optional"
 ARCHITECTURE = "amd64"
@@ -27,12 +27,16 @@ DESCRIPTION_LONG = (
     " - Smooth slide transitions between windows\n"
     " - Aspect-ratio-preserving letterboxing for dynamic window sizes"
 )
-DEPENDS = (
+# Fallback dependency list, used only if dpkg-shlibdeps is unavailable. The names
+# below are correct for Ubuntu 24.04 / Zorin 18 (noble), including the time_t (t64)
+# transition (libasound2t64, libv4l-0t64). On a different base these may differ,
+# which is exactly why dpkg-shlibdeps (auto-generated, base-correct) is preferred.
+FALLBACK_DEPENDS = (
     "libavcodec60, libavformat60, libavutil58, libswscale7, "
     "libqt5widgets5, libqt5x11extras5, libqt5gui5, libqt5core5a, "
     "libx11-6, libxext6, libxfixes3, libxi6, libxinerama1, "
-        "libpipewire-0.3-0, libasound2, libpulse0, "
-        "libstdc++6, libc6"
+    "libpipewire-0.3-0, libasound2t64, libpulse0, libv4l-0t64, "
+    "libglu1-mesa, libglx0, libopengl0, libstdc++6, libc6"
 )
 REPLACES = "simplescreenrecorder"
 CONFLICTS = "simplescreenrecorder"
@@ -42,6 +46,54 @@ PROVIDES = "simplescreenrecorder"
 def run(cmd, cwd=None, check=True):
     print(f"  $ {' '.join(cmd)}")
     return subprocess.run(cmd, cwd=cwd, check=check)
+
+
+def compute_depends(stage_dir):
+    """Auto-generate the dependency list from the staged binaries using
+    dpkg-shlibdeps, so SONAMEs and package names (including t64 renames) are
+    always correct for the base this package is built on. Falls back to a static
+    list if dpkg-shlibdeps is not installed."""
+    if shutil.which("dpkg-shlibdeps") is None:
+        print("  dpkg-shlibdeps not found (install 'dpkg-dev' for accurate deps); "
+              "using fallback dependency list.")
+        return FALLBACK_DEPENDS
+
+    # dpkg-shlibdeps needs a debian/control relative to the working directory.
+    debian_dir = os.path.join(stage_dir, "debian")
+    os.makedirs(debian_dir, exist_ok=True)
+    with open(os.path.join(debian_dir, "control"), "w") as f:
+        f.write("Source: %s\n\nPackage: %s\nArchitecture: %s\n"
+                % (PACKAGE_NAME, PACKAGE_NAME, ARCHITECTURE))
+
+    # Collect the ELF objects we ship (main binary + glinject lib, any arch dir).
+    targets = []
+    for root, _dirs, files in os.walk(os.path.join(stage_dir, "usr")):
+        for name in files:
+            p = os.path.join(root, name)
+            if name == "simplescreenrecorder" or ".so" in name:
+                targets.append(os.path.relpath(p, stage_dir))
+    if not targets:
+        return FALLBACK_DEPENDS
+
+    try:
+        res = subprocess.run(
+            ["dpkg-shlibdeps", "-O", "--ignore-missing-info", *targets],
+            cwd=stage_dir, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print("  dpkg-shlibdeps failed; using fallback list.\n" + (e.stderr or ""))
+        return FALLBACK_DEPENDS
+    finally:
+        # Remove the temporary debian/ tree so it is not packaged into the .deb.
+        shutil.rmtree(debian_dir, ignore_errors=True)
+
+    # Output looks like: shlibs:Depends=libc6 (>= 2.34), libavcodec60, ...
+    for line in res.stdout.splitlines():
+        if line.startswith("shlibs:Depends="):
+            deps = line.split("=", 1)[1].strip()
+            if deps:
+                print("  Auto-generated dependencies via dpkg-shlibdeps.")
+                return deps
+    return FALLBACK_DEPENDS
 
 
 def main():
@@ -86,6 +138,11 @@ def main():
         print(f"Staging install to {stage_dir} ...")
         run(["make", f"DESTDIR={stage_dir}", "install"], cwd=BUILD_DIR)
 
+        # Compute dependencies from the staged binaries (auto, base-correct).
+        print("Computing dependencies ...")
+        depends = compute_depends(stage_dir)
+        print(f"  Depends: {depends}")
+
         # Write control file
         control_path = os.path.join(debian_dir, "control")
         with open(control_path, "w") as f:
@@ -94,7 +151,7 @@ def main():
             f.write(f"Section: {SECTION}\n")
             f.write(f"Priority: {PRIORITY}\n")
             f.write(f"Architecture: {ARCHITECTURE}\n")
-            f.write(f"Depends: {DEPENDS}\n")
+            f.write(f"Depends: {depends}\n")
             f.write(f"Replaces: {REPLACES}\n")
             f.write(f"Conflicts: {CONFLICTS}\n")
             f.write(f"Provides: {PROVIDES}\n")
@@ -121,8 +178,10 @@ def main():
         run(["dpkg-deb", "--root-owner-group", "--build", stage_dir, output_path])
 
         print(f"\nDone: {output_path}")
-        print(f"Install with: sudo dpkg -i {output_name}")
-        print("If dependencies are missing: sudo apt --fix-broken install")
+        print(f"Install with: sudo apt install ./{output_name}")
+        print("(apt resolves dependencies automatically; 'dpkg -i' does not.)")
+        print("Requires a target with the same library generation (Ubuntu 24.04 /")
+        print("Zorin 18 base). For a different version, use ./install-from-source.sh.")
 
 
 if __name__ == "__main__":
