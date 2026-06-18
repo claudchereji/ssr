@@ -184,8 +184,12 @@ static void ClearVideoFrameToBlack(AVFrame* frame, AVPixelFormat format, unsigne
 // Copies a source frame into the center of a destination frame.
 static void CopyFrameCentered(AVFrame* dst, AVPixelFormat format, unsigned int dst_w, unsigned int dst_h,
 							   AVFrame* src, unsigned int src_w, unsigned int src_h) {
-	unsigned int offset_x = (dst_w - src_w) / 2;
-	unsigned int offset_y = (dst_h - src_h) / 2;
+	// Round the centering offsets down to even values. For subsampled/interleaved chroma
+	// (YUV420, YUV422, NV12) an odd horizontal offset misaligns the chroma plane; for NV12
+	// the interleaved U/V bytes land on the wrong slot, swapping U and V (which looks like a
+	// red/blue swap). Even offsets keep chroma aligned; the picture shifts by at most 1 pixel.
+	unsigned int offset_x = ((dst_w - src_w) / 2) & ~1u;
+	unsigned int offset_y = ((dst_h - src_h) / 2) & ~1u;
 	switch(format) {
 		case AV_PIX_FMT_YUV444P: {
 			for(unsigned int y = 0; y < src_h; ++y) {
