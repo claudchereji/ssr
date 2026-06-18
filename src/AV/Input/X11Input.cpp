@@ -279,6 +279,25 @@ void X11Input::CompositeOverlay(unsigned int width, unsigned int height) {
 	painter.setOpacity(m_overlay_opacity);
 	painter.drawImage(0, 0, m_overlay_scaled);
 	painter.end();
+
+	// one-time runtime probe: log the overlay's logical text colour and the actual bytes
+	// written into the capture buffer, to localise the red/blue swap
+	static bool s_logged_overlay_pixels = false;
+	if(!s_logged_overlay_pixels && m_overlay_opacity > 0.99) {
+		for(unsigned int yy = 0; yy < height && !s_logged_overlay_pixels; ++yy) {
+			for(unsigned int xx = 0; xx < width; ++xx) {
+				QColor c = m_overlay_scaled.pixelColor((int) xx, (int) yy);
+				if(c.green() > 40 && c.blue() > 40 && c.red() < 20) {
+					const uint8_t* p = (const uint8_t*) m_x11_image->data + (size_t) yy * m_x11_image->bytes_per_line + (size_t) xx * 4;
+					Logger::LogInfo(QString("[X11Input::CompositeOverlay] DIAG2 overlay_scaled logical R=%1 G=%2 B=%3 ; buffer bytes b0=%4 b1=%5 b2=%6 b3=%7")
+									.arg(c.red()).arg(c.green()).arg(c.blue())
+									.arg(p[0]).arg(p[1]).arg(p[2]).arg(p[3]));
+					s_logged_overlay_pixels = true;
+					break;
+				}
+			}
+		}
+	}
 }
 
 X11Input::X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_full_screen, bool follow_active_window, bool follow_window_under_cursor, unsigned int follow_screen, const std::vector<QString>& blocked_apps) {
