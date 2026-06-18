@@ -248,6 +248,19 @@ void X11Input::CompositeOverlay(unsigned int width, unsigned int height) {
 		default: break;
 	}
 
+	// one-time diagnostic to reveal the real capture pixel layout (helps debug overlay colours)
+	static bool s_logged_overlay_diag = false;
+	if(!s_logged_overlay_diag) {
+		s_logged_overlay_diag = true;
+		Logger::LogInfo(QString("[X11Input::CompositeOverlay] DIAG bits_per_pixel=%1 byte_order=%2(0=LSB,1=MSB)"
+								" red_mask=0x%3 green_mask=0x%4 blue_mask=0x%5 av_fmt=%6 q_fmt=%7 overlay_scaled_fmt=%8")
+						.arg(m_x11_image->bits_per_pixel).arg(m_x11_image->byte_order)
+						.arg((quint32) m_x11_image->red_mask, 0, 16)
+						.arg((quint32) m_x11_image->green_mask, 0, 16)
+						.arg((quint32) m_x11_image->blue_mask, 0, 16)
+						.arg((int) av_fmt).arg((int) q_fmt).arg((int) m_overlay_scaled.format()));
+	}
+
 	if(q_fmt == QImage::Format_Invalid) {
 		// unsupported format: fill with black instead of compositing
 		X11ImageClearRectangle(m_x11_image, 0, 0, width, height);

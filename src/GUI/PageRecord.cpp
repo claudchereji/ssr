@@ -894,9 +894,11 @@ void PageRecord::StartOutput() {
 			m_output_settings.video_height = m_video_in_height;
 		}
 
-		// enable letterboxing for window-follow modes when scaling is disabled
-		m_output_settings.video_letterbox = (!m_video_scaling &&
-			m_video_backend == PageInput::VIDEO_BACKEND_X11 &&
+		// enable letterboxing for window-follow modes (with or without scaling) so the
+		// followed window is fit into the output canvas preserving aspect ratio, never
+		// stretched. When the window matches the output size it is copied 1:1.
+		m_output_settings.video_letterbox =
+			(m_video_backend == PageInput::VIDEO_BACKEND_X11 &&
 			(m_video_x11_area == PageInput::VIDEO_X11_AREA_ACTIVE_WINDOW ||
 			 m_video_x11_area == PageInput::VIDEO_X11_AREA_WINDOW_UNDER_CURSOR));
 
